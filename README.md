@@ -1,5 +1,7 @@
 # SniperIT Agent - Cross-Platform Asset Management Agent
 
+[![Build Test](https://github.com/Josexv1/Sniper-IT/actions/workflows/build-test.yml/badge.svg)](https://github.com/Josexv1/Sniper-IT/actions/workflows/build-test.yml)
+
 SniperIT Agent is a Python-based agent that automatically syncs system information with your Snipe-IT asset management system. Features robust cross-platform support for both Windows and Linux.
 
 ## 🎯 Key Features

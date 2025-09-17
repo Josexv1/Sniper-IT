@@ -13,7 +13,7 @@ jobs:
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest]
-        python-version: ['3.8', '3.11']
+        python-version: ['3.9', '3.11']
 
     steps:
     - name: Checkout code
@@ -26,13 +26,14 @@ jobs:
 
     - name: Test build process
       run: python build.py
+      timeout-minutes: 15
 
     - name: Test executable
       run: |
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          ./dist/SniperIT-Agent.exe --help || echo "Windows build test passed"
+          ./dist/SniperIT-Agent.exe --help && echo "Windows executable test passed"
         else
-          ./dist/SniperIT-Agent --help || echo "Linux build test passed"
+          ./dist/SniperIT-Agent --help && echo "Linux executable test passed"
         fi
       shell: bash
 
