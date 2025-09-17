@@ -5,6 +5,9 @@ on:
     types: [published]
   workflow_dispatch:  # Manual trigger
 
+permissions:
+  contents: write
+
 jobs:
   package:
     name: Create Source Packages

@@ -6,6 +6,10 @@ on:
       - 'v*'  # Triggers on version tags like v0.2.6, v1.0.0, etc.
   workflow_dispatch:  # Allows manual triggering
 
+permissions:
+  contents: write
+  pull-requests: read
+
 jobs:
   build:
     name: Build on ${{ matrix.display_name }}
