@@ -1,0 +1,32 @@
+name: Package Source
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  package:
+    name: Create Source Packages
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Create source packages
+      run: python package.py
+
+    - name: Upload to release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          SniperIT-Agent-Source.zip
+          SniperIT-Agent-Source.tar.gz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

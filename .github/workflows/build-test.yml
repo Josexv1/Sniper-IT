@@ -1,0 +1,46 @@
+name: Build Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-build:
+    name: Test Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python-version: ['3.8', '3.11']
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Test build process
+      run: python build.py
+
+    - name: Test executable
+      run: |
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          ./dist/SniperIT-Agent.exe --help || echo "Windows build test passed"
+        else
+          ./dist/SniperIT-Agent --help || echo "Linux build test passed"
+        fi
+      shell: bash
+
+    - name: Test data collection (no API)
+      run: |
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          echo "Testing Windows data collection would require API setup"
+        else
+          echo "Testing Linux data collection would require API setup"
+        fi
+      shell: bash

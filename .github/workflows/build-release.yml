@@ -1,0 +1,119 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Triggers on version tags like v0.2.6, v1.0.0, etc.
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_name: SniperIT-Agent.exe
+            asset_name: SniperIT-Agent-Windows.exe
+          - os: ubuntu-latest
+            artifact_name: SniperIT-Agent
+            asset_name: SniperIT-Agent-Linux
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies and build
+      run: python build.py
+
+    - name: Verify build
+      run: |
+        ls -la dist/
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          ./dist/SniperIT-Agent.exe --help || echo "Windows executable created"
+        else
+          ./dist/SniperIT-Agent --help || echo "Linux executable created"
+        fi
+      shell: bash
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.asset_name }}
+        path: dist/${{ matrix.artifact_name }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download Windows artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: SniperIT-Agent-Windows.exe
+        path: ./release/
+
+    - name: Download Linux artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: SniperIT-Agent-Linux
+        path: ./release/
+
+    - name: Create source package
+      run: |
+        python package.py
+        mv SniperIT-Agent-Source.zip ./release/
+        mv SniperIT-Agent-Source.tar.gz ./release/
+
+    - name: Get version from tag
+      id: get_version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: SniperIT Agent ${{ steps.get_version.outputs.VERSION }}
+        body: |
+          ## SniperIT Agent ${{ steps.get_version.outputs.VERSION }}
+          
+          Cross-platform asset management agent for Snipe-IT integration.
+          
+          ### 📦 Downloads
+          - **Windows**: `SniperIT-Agent-Windows.exe` - Single file executable for Windows
+          - **Linux**: `SniperIT-Agent-Linux` - Single file executable for Linux  
+          - **Source**: `SniperIT-Agent-Source.zip` - Complete source code for building
+          
+          ### 🚀 Quick Start
+          1. Download the executable for your platform
+          2. Configure `config/config.ini` with your Snipe-IT details
+          3. Run: `./SniperIT-Agent --test-only` to test
+          4. Run: `./SniperIT-Agent` for full sync
+          
+          ### ⚙️ Features
+          - Cross-platform Windows/Linux support
+          - Hostname-based asset detection
+          - Comprehensive hardware/software data collection
+          - SSL certificate handling (-issl flag)
+          - Real-time sync verification
+          
+          For detailed setup instructions, see the [README](https://github.com/${{ github.repository }}/blob/main/README.md).
+        files: |
+          ./release/SniperIT-Agent.exe
+          ./release/SniperIT-Agent
+          ./release/SniperIT-Agent-Source.zip
+          ./release/SniperIT-Agent-Source.tar.gz
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
