@@ -12,15 +12,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-2022, ubuntu-24.04]
         python-version: ['3.9', '3.11']
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -30,7 +30,7 @@ jobs:
 
     - name: Test executable
       run: |
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+        if [ "${{ matrix.os }}" = "windows-2022" ]; then
           ./dist/SniperIT-Agent.exe --help && echo "Windows executable test passed"
         else
           ./dist/SniperIT-Agent --help && echo "Linux executable test passed"
@@ -39,7 +39,7 @@ jobs:
 
     - name: Test data collection (no API)
       run: |
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+        if [ "${{ matrix.os }}" = "windows-2022" ]; then
           echo "Testing Windows data collection would require API setup"
         else
           echo "Testing Linux data collection would require API setup"

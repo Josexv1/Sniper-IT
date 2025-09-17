@@ -13,19 +13,19 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: windows-latest
+          - os: windows-2022
             artifact_name: SniperIT-Agent.exe
             asset_name: SniperIT-Agent-Windows.exe
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             artifact_name: SniperIT-Agent
             asset_name: SniperIT-Agent-Linux
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.11'
 
@@ -35,7 +35,7 @@ jobs:
     - name: Verify build
       run: |
         ls -la dist/
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+        if [ "${{ matrix.os }}" = "windows-2022" ]; then
           ./dist/SniperIT-Agent.exe --help || echo "Windows executable created"
         else
           ./dist/SniperIT-Agent --help || echo "Linux executable created"
@@ -43,7 +43,7 @@ jobs:
       shell: bash
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.asset_name }}
         path: dist/${{ matrix.artifact_name }}
@@ -51,21 +51,21 @@ jobs:
   release:
     name: Create Release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Download Windows artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: SniperIT-Agent-Windows.exe
         path: ./release/
 
     - name: Download Linux artifact
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: SniperIT-Agent-Linux
         path: ./release/
@@ -81,7 +81,7 @@ jobs:
       run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         name: SniperIT Agent ${{ steps.get_version.outputs.VERSION }}
         body: |
