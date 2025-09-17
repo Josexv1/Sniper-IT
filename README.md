@@ -246,9 +246,3 @@ python main.py --test-only
 ## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Credits
-
-This project is inspired by [https://github.com/aadrsh/snipe-it-python-agent](https://github.com/aadrsh/snipe-it-python-agent). Special thanks to the original contributors for their groundwork in Snipe-IT integration.
-
-Enhanced with clean architecture for reliability, maintainability, and true cross-platform support.
