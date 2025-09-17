@@ -8,15 +8,17 @@ on:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
+    name: Build on ${{ matrix.display_name }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
           - os: windows-2022
+            display_name: Windows
             artifact_name: SniperIT-Agent.exe
             asset_name: SniperIT-Agent-Windows.exe
           - os: ubuntu-24.04
+            display_name: Linux
             artifact_name: SniperIT-Agent
             asset_name: SniperIT-Agent-Linux
 

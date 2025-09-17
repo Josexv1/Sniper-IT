@@ -8,11 +8,15 @@ on:
 
 jobs:
   test-build:
-    name: Test Build on ${{ matrix.os }}
+    name: Test Build on ${{ matrix.display_name }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-2022, ubuntu-24.04]
+        include:
+          - os: windows-2022
+            display_name: Windows
+          - os: ubuntu-24.04
+            display_name: Linux
         python-version: ['3.9', '3.11']
 
     steps:
