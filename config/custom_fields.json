@@ -1,0 +1,74 @@
+{
+  "field_configuration": {
+    "basic_system_fields": {
+      "operating_system": {
+        "enabled": true,
+        "field_name": "_snipeit_operating_system_3"
+      },
+      "os_install_date": {
+        "enabled": true,
+        "field_name": "_snipeit_os_install_date_4"
+      },
+      "memory_ram": {
+        "enabled": true,
+        "field_name": "_snipeit_memory_ram_10"
+      },
+      "ram_usage": {
+        "enabled": true,
+        "field_name": "_snipeit_ram_usage_11"
+      },
+      "bios_release_date": {
+        "enabled": true,
+        "field_name": "_snipeit_bios_release_date_12"
+      },
+      "ip_address": {
+        "enabled": true,
+        "field_name": "_snipeit_ip_address_13"
+      },
+      "processor_cpu": {
+        "enabled": true,
+        "field_name": "_snipeit_processor_cpu_14"
+      },
+      "username": {
+        "enabled": true,
+        "field_name": "_snipeit_windows_username_15"
+      },
+      "mac_address": {
+        "enabled": true,
+        "field_name": "_snipeit_mac_address_1"
+      },
+      "total_storage": {
+        "enabled": true,
+        "field_name": "_snipeit_total_storage_6"
+      },
+      "storage_information": {
+        "enabled": true,
+        "field_name": "_snipeit_storage_information_7"
+      },
+      "disk_space_used": {
+        "enabled": true,
+        "field_name": "_snipeit_disk_space_used_13"
+      },
+      "pyitagent_version": {
+        "enabled": true,
+        "field_name": "_snipeit_pyitagent_14"
+      }
+    },
+    "optional_fields": {
+      "cpu_temperature": {
+        "enabled": true,
+        "field_name": "_snipeit_cpu_temperature_20"
+      },
+      "system_uptime": {
+        "enabled": true,
+        "field_name": "_snipeit_uptime_21"
+      }
+    },
+    "monitor_fields": {
+      "screen_size": {
+        "enabled": true,
+        "field_name": "_snipeit_screen_size_21"
+      }
+    }
+  }
+}

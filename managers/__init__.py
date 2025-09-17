@@ -1,0 +1,1 @@
+# SniperIT Agent Managers Module
