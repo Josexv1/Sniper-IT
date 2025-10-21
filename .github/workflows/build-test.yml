@@ -17,16 +17,15 @@ jobs:
             display_name: Windows
           - os: ubuntu-24.04
             display_name: Linux
-        python-version: ['3.9', '3.11']
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v5
 
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python
       uses: actions/setup-python@v6
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: '3.11'
 
     - name: Test build process
       run: python build.py
