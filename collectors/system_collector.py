@@ -1,337 +1,490 @@
-#!/usr/bin/env python3
 """
-Unified System Data Collector for SniperIT Agent
-OS-aware data collection with standardized output format
+Sniper-IT Agent - System Data Collector
+Collects system information using regular user privileges (no admin required)
+Supports Windows and Linux platforms
 """
 
 import platform
 import subprocess
-import os
-import sys
-import json
-sys.path.append('..')
-from utils.common import run_command, format_number, resolve_path
-import config.constants as c
+import datetime
+from typing import Dict, Any, Optional
+from pathlib import Path
+
+from utils.exceptions import DataCollectionError
+from core.constants import VERSION
+
 
 class SystemDataCollector:
-    def __init__(self):
+    """
+    Collects system data using commands that work with regular domain user privileges.
+    All commands are tested to work without administrative/elevated permissions.
+    """
+    
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """
+        Initialize the system data collector
+        
+        Args:
+            config: Optional configuration dictionary with custom fields definitions
+        """
         self.os_type = platform.system()
-        self.collected_data = {}
-        self.custom_fields_data = {}
-        self.field_config = self._load_field_config()
+        self.config = config or {}
+        self.collected_data: Dict[str, Any] = {}
+        self.custom_fields: Dict[str, str] = {}
         
-    def collect_all_data(self):
-        """Main method to collect all system data based on OS"""
-        print(f"🖥️  Operating System Detected: {self.os_type}")
+    def collect_all(self) -> Dict[str, Any]:
+        """
+        Collect all system data based on the operating system
         
-        if self.os_type == "Windows":
-            self._collect_windows_data()
-        elif self.os_type == "Linux":
-            self._collect_linux_data()
-        else:
-            self._collect_generic_data()
-            
-        # Always add Agent version
-        self.collected_data['agent_version'] = c.VERSION
-        self.custom_fields_data['Agent Version'] = c.VERSION
-        
-        # Validate and display collected data
-        self._validate_and_display()
-        
-        return {
-            'system_data': self.collected_data,
-            'custom_fields': self.custom_fields_data,
-            'os_type': self.os_type
-        }
-    
-    def _collect_windows_data(self):
-        """Collect data for Windows systems"""
-        print("🪟 Collecting Windows system data...")
-        
-        # Basic system information
-        self.collected_data['hostname'] = run_command("$env:COMPUTERNAME")
-        self.collected_data['manufacturer'] = run_command("(Get-WmiObject -Class Win32_ComputerSystem).Manufacturer")
-        self.collected_data['model'] = run_command("(Get-WmiObject -Class Win32_ComputerSystem).Model")
-        self.collected_data['serial_number'] = run_command("(Get-WmiObject -Class Win32_BIOS).SerialNumber")
-        
-        # Hardware information
-        self.collected_data['processor'] = run_command("(Get-WmiObject -Class Win32_Processor).Name")
-        memory_total = format_number(run_command("[Math]::Round((Get-WmiObject Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 1)"))
-        memory_used = format_number(run_command("[Math]::Round(((Get-WmiObject Win32_ComputerSystem).TotalPhysicalMemory - (Get-WmiObject Win32_OperatingSystem).FreePhysicalMemory * 1024) / 1GB, 2)"))
-        self.collected_data['memory_total_gb'] = f"{memory_total} GB"
-        self.collected_data['memory_used_gb'] = f"{memory_used} GB"
-        
-        # Storage information
-        storage_total = format_number(run_command("$total=0; (Get-WmiObject -Class Win32_DiskDrive | Where-Object { $_.MediaType -eq 'Fixed hard disk media' }).Size | foreach-object { $total=$total+$_/1gb }; [Math]::Round($total, 2)"))
-        storage_used = format_number(run_command("[Math]::Round(((Get-WmiObject Win32_LogicalDisk -Filter \"DeviceID='C:'\").Size - (Get-WmiObject Win32_LogicalDisk -Filter \"DeviceID='C:'\").FreeSpace) / 1GB, 2)"))
-        self.collected_data['total_storage_gb'] = f"{storage_total} GB"
-        self.collected_data['disk_used_gb'] = f"{storage_used} GB"
-        self.collected_data['storage_info'] = run_command("(Get-WmiObject -Class Win32_DiskDrive | Where-Object { $_.MediaType -eq 'Fixed hard disk media' }) | ForEach-Object{ echo \"$($_.MediaType) - $($_.Model) - $($_.SerialNumber) - $([Math]::Round($_.Size/1gb,2)) GB\" }")
-        
-        # Network information
-        self.collected_data['ip_address'] = run_command("(Test-Connection (hostname) -count 1).IPv4Address.IPAddressToString")
-        self.collected_data['mac_address'] = run_command("(Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object {$_.IPEnabled -eq $true} | Select-Object -First 1).MACAddress")
-        
-        # Software information
-        self.collected_data['os_version'] = run_command("(Get-WmiObject Win32_OperatingSystem).Caption")
-        
-        # OS install date - convert timestamp to readable format
-        install_timestamp = run_command("[math]::Round((New-TimeSpan -Start (Get-Date '1970-01-01') -End (Get-CimInstance Win32_OperatingSystem).InstallDate).TotalSeconds)")
-        self.collected_data['os_install_date'] = self._format_timestamp(install_timestamp)
-        
-        bios_timestamp = run_command("[math]::Round((New-TimeSpan -Start (Get-Date '1970-01-01') -End (Get-CimInstance Win32_BIOS).ReleaseDate).TotalSeconds)")
-        self.collected_data['bios_date'] = self._format_timestamp(bios_timestamp)
-        self.collected_data['current_user'] = run_command("[System.Security.Principal.WindowsIdentity]::GetCurrent().Name")
-        
-        # Collect optional fields if enabled
-        self._collect_optional_fields()
-        
-        # Map to Snipe-IT custom field names
-        self._map_to_custom_fields()
-    
-    def _collect_linux_data(self):
-        """Collect data for Linux systems"""
-        print("🐧 Collecting Linux system data...")
-        
-        # Basic system information
-        self.collected_data['hostname'] = run_command("hostname")
-        self.collected_data['manufacturer'] = run_command("cat /sys/class/dmi/id/sys_vendor 2>/dev/null || echo 'Generic Manufacturer'")
-        self.collected_data['model'] = run_command("cat /sys/class/dmi/id/product_name 2>/dev/null || cat /sys/class/dmi/id/product_version 2>/dev/null || echo 'Generic Model'")
-        
-        # Enhanced serial number detection
-        self.collected_data['serial_number'] = self._get_linux_serial()
-        
-        # Hardware information
-        self.collected_data['processor'] = run_command("cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d: -f2 | sed 's/^ *//'")
-        memory_total = format_number(run_command("free -g | awk 'NR==2{printf \"%.1f\", $2}'"))
-        memory_used = format_number(run_command("free -g | awk 'NR==2{printf \"%.1f\", $3}'"))
-        self.collected_data['memory_total_gb'] = f"{memory_total} GB"
-        self.collected_data['memory_used_gb'] = f"{memory_used} GB"
-        
-        # Storage information
-        storage_total = format_number(run_command("df -BG / | tail -1 | awk '{print $2}' | sed 's/G//'"))
-        storage_used = format_number(run_command("df -BG / | tail -1 | awk '{print $3}' | sed 's/G//'"))
-        self.collected_data['total_storage_gb'] = f"{storage_total} GB"
-        self.collected_data['disk_used_gb'] = f"{storage_used} GB"
-        self.collected_data['storage_info'] = run_command("lsblk -d -o NAME,MODEL,SIZE,VENDOR | grep -v 'NAME' | head -3 | tr '\n' '; '")
-        
-        # Network information
-        self.collected_data['ip_address'] = run_command("hostname -I | awk '{print $1}'")
-        self.collected_data['mac_address'] = run_command("cat /sys/class/net/$(ls /sys/class/net | grep -v lo | head -1)/address")
-        
-        # Software information
-        self.collected_data['os_version'] = run_command("lsb_release -d | cut -f2")
-        
-        # OS install date - convert timestamp to readable format
-        install_timestamp = run_command("stat -c '%W' /etc/os-release")
-        self.collected_data['os_install_date'] = self._format_timestamp(install_timestamp)
-        self.collected_data['bios_date'] = run_command("cat /sys/class/dmi/id/bios_date 2>/dev/null || echo 'Unknown'")
-        self.collected_data['current_user'] = run_command("whoami")
-        
-        # Collect optional fields if enabled
-        self._collect_optional_fields()
-        
-        # Map to Snipe-IT custom field names
-        self._map_to_custom_fields()
-    
-    def _collect_generic_data(self):
-        """Collect basic data for unsupported systems"""
-        print("🔧 Collecting generic system data...")
-        
-        self.collected_data['hostname'] = run_command("hostname")
-        self.collected_data['manufacturer'] = "Generic Manufacturer"
-        self.collected_data['model'] = "Generic Model"
-        self.collected_data['serial_number'] = "Unknown"
-        self.collected_data['current_user'] = run_command("whoami")
-        self.collected_data['os_version'] = f"{platform.system()} {platform.release()}"
-        
-        # Collect optional fields if enabled
-        self._collect_optional_fields()
-        
-        # Map to Snipe-IT custom field names
-        self._map_to_custom_fields()
-    
-    def _get_linux_serial(self):
-        """Get serial number for Linux with multiple fallbacks"""
-        serial_commands = [
-            "cat /sys/class/dmi/id/product_serial 2>/dev/null",
-            "cat /sys/class/dmi/id/board_serial 2>/dev/null", 
-            "cat /sys/class/dmi/id/chassis_serial 2>/dev/null",
-            "sudo dmidecode -s system-serial-number 2>/dev/null",
-            "sudo dmidecode -s baseboard-serial-number 2>/dev/null"
-        ]
-        
-        for cmd in serial_commands:
-            result = run_command(cmd)
-            if result and result.strip() and result.strip().lower() not in ['unknown', 'not specified', 'to be filled by o.e.m.', '0', '', 'none', 'n/a']:
-                return result.strip()
-        
-        # Generate consistent serial for systems without hardware serial
-        hostname = self.collected_data.get('hostname', 'unknown')
-        mac = run_command("cat /sys/class/net/$(ls /sys/class/net | grep -v lo | head -1)/address 2>/dev/null || echo ''")
-        if mac:
-            return f"LINUX-{hostname}-{mac.replace(':', '')[:8].upper()}"
-        
-        return "Unknown"
-    
-    def _format_timestamp(self, timestamp_str):
-        """Convert Unix timestamp to readable date format"""
-        try:
-            import datetime
-            if timestamp_str and timestamp_str.strip() and timestamp_str.strip() not in ['0', 'Unknown', '']:
-                timestamp = int(float(timestamp_str))
-                if timestamp > 0:  # Valid timestamp
-                    dt = datetime.datetime.fromtimestamp(timestamp)
-                    return dt.strftime("%Y-%m-%d %H:%M:%S")
-            return "Unknown"
-        except (ValueError, OSError) as e:
-            print(f"   ⚠️  Could not format timestamp '{timestamp_str}': {e}")
-            return "Unknown"
-    
-    def _load_field_config(self):
-        """Load field configuration from custom_fields.json"""
-        try:
-            config_path = resolve_path('custom_fields.json')
-            if not os.path.exists(config_path):
-                config_path = resolve_path('config/custom_fields.json')
-            
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-                return config.get('field_configuration', {})
-        except Exception as e:
-            print(f"⚠️  Warning: Could not load field configuration: {e}")
-            return {}
-    
-    def _collect_optional_fields(self):
-        """Collect optional fields based on configuration and OS"""
-        optional_fields = self.field_config.get('optional_fields', {})
-        
-        for field_key, field_info in optional_fields.items():
-            if not field_info.get('enabled', False):
-                continue
+        Returns:
+            Dictionary containing:
+                - system_data: Core system information
+                - custom_fields: Data formatted for Snipe-IT custom fields
+                - os_type: Operating system type
                 
-            try:
-                if field_key == 'cpu_temperature':
-                    self.collected_data['cpu_temperature'] = self._get_cpu_temperature()
-                elif field_key == 'system_uptime':
-                    self.collected_data['system_uptime'] = self._get_system_uptime()
-            except Exception as e:
-                print(f"⚠️  Warning: Could not collect {field_key}: {e}")
-    
-    def _get_cpu_temperature(self):
-        """Get CPU temperature if available"""
-        if self.os_type == "Windows":
-            # Most Windows systems don't expose temperature via WMI reliably
-            return "Not Available"
-        elif self.os_type == "Linux":
-            # Try common thermal sensors on Linux
-            temp_commands = [
-                "cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null | awk '{print $1/1000}'",
-                "sensors | grep 'Core 0' | awk '{print $3}' | cut -d'+' -f2 | cut -d'°' -f1"
-            ]
-            for cmd in temp_commands:
-                result = run_command(cmd)
-                if result and result.strip() and result.strip() != "":
-                    try:
-                        temp = float(result.strip())
-                        return f"{temp:.1f}°C"
-                    except ValueError:
-                        continue
-        return "Not Available"
-    
-    def _get_system_uptime(self):
-        """Get system uptime in days"""
+        Raises:
+            DataCollectionError: If critical data collection fails
+        """
         try:
             if self.os_type == "Windows":
-                uptime_seconds = run_command("(Get-Date) - (gcim Win32_OperatingSystem).LastBootUpTime | ForEach-Object { $_.TotalDays }")
-                if uptime_seconds:
-                    return f"{float(uptime_seconds):.1f} days"
+                self._collect_windows_data()
             elif self.os_type == "Linux":
-                uptime_seconds = run_command("awk '{print $1/86400}' /proc/uptime")
-                if uptime_seconds:
-                    return f"{float(uptime_seconds):.1f} days"
-        except Exception:
-            pass
-        return "Unknown"
+                self._collect_linux_data()
+            else:
+                self._collect_generic_data()
+            
+            # Always add agent version
+            self.collected_data['agent_version'] = VERSION
+            
+            # Map collected data to custom fields format
+            self._map_to_custom_fields()
+            
+            return {
+                'system_data': self.collected_data,
+                'custom_fields': self.custom_fields,
+                'os_type': self.os_type
+            }
+            
+        except Exception as e:
+            raise DataCollectionError(f"Failed to collect system data: {e}")
     
-    def _map_to_custom_fields(self):
-        """Map collected data to Snipe-IT custom field format"""
-        # Mapping from internal field names to Snipe-IT display names
+    def _collect_windows_data(self) -> None:
+        """
+        Collect Windows system data using CIM/WMI queries.
+        All commands work with regular domain user privileges.
+        """
+        # Basic system information
+        self.collected_data['hostname'] = self._run_powershell("$env:COMPUTERNAME")
+        self.collected_data['manufacturer'] = self._run_powershell(
+            "(Get-CimInstance -ClassName Win32_ComputerSystem).Manufacturer"
+        )
+        self.collected_data['model'] = self._run_powershell(
+            "(Get-CimInstance -ClassName Win32_ComputerSystem).Model"
+        )
+        self.collected_data['serial_number'] = self._run_powershell(
+            "(Get-CimInstance -ClassName Win32_BIOS).SerialNumber"
+        )
+        
+        # Hardware information - Processor
+        self.collected_data['processor'] = self._run_powershell(
+            "(Get-CimInstance -ClassName Win32_Processor).Name"
+        )
+        
+        # Memory information (RAM)
+        total_memory_gb = self._run_powershell(
+            "[Math]::Round((Get-CimInstance -ClassName Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)"
+        )
+        self.collected_data['memory_total_gb'] = f"{total_memory_gb} GB" if total_memory_gb else "Unknown"
+        
+        # RAM Usage calculation - Combined command for reliability
+        ram_usage = self._run_powershell(
+            "$os = Get-CimInstance -ClassName Win32_OperatingSystem; $cs = Get-CimInstance -ClassName Win32_ComputerSystem; $totalGB = [Math]::Round($cs.TotalPhysicalMemory / 1GB, 2); $freeGB = [Math]::Round($os.FreePhysicalMemory / 1MB, 2); $usedGB = $totalGB - $freeGB; $percent = [Math]::Round(($usedGB / $totalGB) * 100, 1); \"$usedGB GB / $totalGB GB ($percent%)\""
+        )
+        self.collected_data['ram_usage'] = ram_usage if ram_usage else "Unknown"
+        
+        # Storage information - Total storage from physical disks
+        total_storage = self._run_powershell(
+            "$total = 0; Get-CimInstance -ClassName Win32_DiskDrive | Where-Object { $_.MediaType -match 'Fixed' } | ForEach-Object { $total += $_.Size }; [Math]::Round($total / 1GB, 2)"
+        )
+        self.collected_data['total_storage_gb'] = f"{total_storage} GB" if total_storage else "Unknown"
+        
+        # Disk space used on C: drive - Combined command for reliability
+        disk_usage = self._run_powershell(
+            "$disk = Get-CimInstance -ClassName Win32_LogicalDisk -Filter \"DeviceID='C:'\"; $totalGB = [Math]::Round($disk.Size / 1GB, 2); $usedGB = [Math]::Round(($disk.Size - $disk.FreeSpace) / 1GB, 2); $percent = [Math]::Round(($usedGB / $totalGB) * 100, 1); \"$usedGB GB / $totalGB GB ($percent%)\""
+        )
+        self.collected_data['disk_space_used'] = disk_usage if disk_usage else "Unknown"
+        
+        # Storage details (disk models and info)
+        storage_info = self._run_powershell(
+            "Get-CimInstance -ClassName Win32_DiskDrive | Where-Object { $_.MediaType -match 'Fixed' } | ForEach-Object { \"$($_.Model) - $([Math]::Round($_.Size/1GB,2)) GB\" } | Select-Object -First 3"
+        )
+        self.collected_data['storage_information'] = storage_info if storage_info else "Unknown"
+        
+        # Network information - IP Address (active adapter)
+        ip_address = self._run_powershell(
+            "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -notmatch 'Loopback' -and $_.PrefixOrigin -eq 'Dhcp' -or $_.PrefixOrigin -eq 'Manual' } | Select-Object -First 1).IPAddress"
+        )
+        # Fallback if Get-NetIPAddress fails
+        if not ip_address:
+            ip_address = self._run_powershell(
+                "(Test-Connection -ComputerName $env:COMPUTERNAME -Count 1).IPv4Address.IPAddressToString"
+            )
+        self.collected_data['ip_address'] = ip_address if ip_address else "Unknown"
+        
+        # MAC Address (active adapter)
+        mac_address = self._run_powershell(
+            "(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.Physical -eq $true } | Select-Object -First 1).MacAddress"
+        )
+        # Fallback to WMI if Get-NetAdapter fails
+        if not mac_address:
+            mac_address = self._run_powershell(
+                "(Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled -eq $true } | Select-Object -First 1).MACAddress"
+            )
+        self.collected_data['mac_address'] = mac_address if mac_address else "Unknown"
+        
+        # Operating System information
+        os_caption = self._run_powershell(
+            "(Get-CimInstance -ClassName Win32_OperatingSystem).Caption"
+        )
+        os_version = self._run_powershell(
+            "(Get-CimInstance -ClassName Win32_OperatingSystem).Version"
+        )
+        if os_caption and os_version:
+            self.collected_data['operating_system'] = f"{os_caption} ({os_version})"
+        elif os_caption:
+            self.collected_data['operating_system'] = os_caption
+        else:
+            self.collected_data['operating_system'] = "Windows (Unknown Version)"
+        
+        # OS Install Date
+        install_date = self._run_powershell(
+            "(Get-CimInstance -ClassName Win32_OperatingSystem).InstallDate.ToString('yyyy-MM-dd HH:mm:ss')"
+        )
+        self.collected_data['os_install_date'] = install_date if install_date else "Unknown"
+        
+        # BIOS Release Date
+        bios_date = self._run_powershell(
+            "$bios = Get-CimInstance -ClassName Win32_BIOS; if ($bios.ReleaseDate) { $bios.ReleaseDate.ToString('yyyy-MM-dd') } else { 'Unknown' }"
+        )
+        self.collected_data['bios_release_date'] = bios_date if bios_date else "Unknown"
+        
+        # Current User
+        current_user = self._run_powershell(
+            "$user = [System.Security.Principal.WindowsIdentity]::GetCurrent(); $user.Name"
+        )
+        self.collected_data['username'] = current_user if current_user else "Unknown"
+        
+        # Optional fields
+        self._collect_optional_windows_fields()
+    
+    def _collect_optional_windows_fields(self) -> None:
+        """Collect optional Windows fields if enabled in config"""
+        optional_fields = self.config.get('custom_fields', {}).get('optional_fields', {})
+        
+        # CPU Temperature (usually not available on Windows without 3rd party tools)
+        if optional_fields.get('cpu_temperature', {}).get('enabled', False):
+            self.collected_data['cpu_temperature'] = "Not Available (Windows)"
+        
+        # System Uptime
+        if optional_fields.get('system_uptime', {}).get('enabled', False):
+            uptime = self._run_powershell(
+                "$bootTime = (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime; $uptime = (Get-Date) - $bootTime; [Math]::Round($uptime.TotalDays, 2)"
+            )
+            self.collected_data['system_uptime'] = f"{uptime} days" if uptime else "Unknown"
+        
+        # Screen Size (monitor information)
+        if optional_fields.get('screen_size', {}).get('enabled', False):
+            screen_size = self._run_powershell(
+                "$monitors = Get-CimInstance -Namespace root\\wmi -ClassName WmiMonitorBasicDisplayParams; if ($monitors) { $monitor = $monitors | Select-Object -First 1; \"$($monitor.MaxHorizontalImageSize) x $($monitor.MaxVerticalImageSize) cm\" } else { 'Unknown' }"
+            )
+            self.collected_data['screen_size'] = screen_size if screen_size else "Unknown"
+    
+    def _collect_linux_data(self) -> None:
+        """
+        Collect Linux system data using standard commands.
+        All commands work with regular user privileges.
+        """
+        # Basic system information
+        self.collected_data['hostname'] = self._run_bash("hostname")
+        self.collected_data['manufacturer'] = self._run_bash(
+            "cat /sys/class/dmi/id/sys_vendor 2>/dev/null || echo 'Generic'"
+        )
+        self.collected_data['model'] = self._run_bash(
+            "cat /sys/class/dmi/id/product_name 2>/dev/null || echo 'Generic Model'"
+        )
+        
+        # Serial number with multiple fallbacks
+        serial = self._run_bash("cat /sys/class/dmi/id/product_serial 2>/dev/null")
+        if not serial or serial.lower() in ['unknown', 'not specified', 'to be filled by o.e.m.']:
+            serial = self._run_bash("cat /sys/class/dmi/id/board_serial 2>/dev/null")
+        if not serial or serial.lower() in ['unknown', 'not specified']:
+            # Generate consistent serial from hostname and MAC
+            hostname = self.collected_data.get('hostname', 'unknown')
+            mac = self._run_bash("cat /sys/class/net/$(ls /sys/class/net | grep -v lo | head -1)/address 2>/dev/null")
+            if mac:
+                serial = f"LINUX-{hostname}-{mac.replace(':', '')[:8].upper()}"
+            else:
+                serial = f"LINUX-{hostname}"
+        self.collected_data['serial_number'] = serial
+        
+        # Hardware - Processor
+        processor = self._run_bash(
+            "cat /proc/cpuinfo | grep 'model name' | head -1 | cut -d: -f2 | sed 's/^ *//'"
+        )
+        self.collected_data['processor'] = processor if processor else "Unknown"
+        
+        # Memory information
+        total_memory = self._run_bash("free -g | awk 'NR==2{printf \"%.2f\", $2}'")
+        self.collected_data['memory_total_gb'] = f"{total_memory} GB" if total_memory else "Unknown"
+        
+        used_memory = self._run_bash("free -g | awk 'NR==2{printf \"%.2f\", $3}'")
+        if total_memory and used_memory:
+            try:
+                total = float(total_memory)
+                used = float(used_memory)
+                percent = (used / total) * 100 if total > 0 else 0
+                self.collected_data['ram_usage'] = f"{used:.2f} GB ({percent:.1f}%)"
+            except ValueError:
+                self.collected_data['ram_usage'] = "Unknown"
+        else:
+            self.collected_data['ram_usage'] = "Unknown"
+        
+        # Storage information
+        total_storage = self._run_bash("lsblk -d -b -o SIZE | tail -n +2 | awk '{sum+=$1} END {printf \"%.2f\", sum/1024/1024/1024}'")
+        self.collected_data['total_storage_gb'] = f"{total_storage} GB" if total_storage else "Unknown"
+        
+        disk_used = self._run_bash("df -BG / | tail -1 | awk '{print $3}' | sed 's/G//'")
+        disk_total = self._run_bash("df -BG / | tail -1 | awk '{print $2}' | sed 's/G//'")
+        if disk_used and disk_total:
+            try:
+                used = float(disk_used)
+                total = float(disk_total)
+                percent = (used / total) * 100 if total > 0 else 0
+                self.collected_data['disk_space_used'] = f"{used:.2f} GB / {total:.2f} GB ({percent:.1f}%)"
+            except ValueError:
+                self.collected_data['disk_space_used'] = "Unknown"
+        else:
+            self.collected_data['disk_space_used'] = "Unknown"
+        
+        storage_info = self._run_bash("lsblk -d -o NAME,MODEL,SIZE | tail -n +2 | head -3 | tr '\\n' '; '")
+        self.collected_data['storage_information'] = storage_info if storage_info else "Unknown"
+        
+        # Network information
+        ip_address = self._run_bash("hostname -I | awk '{print $1}'")
+        self.collected_data['ip_address'] = ip_address if ip_address else "Unknown"
+        
+        mac_address = self._run_bash(
+            "cat /sys/class/net/$(ls /sys/class/net | grep -v lo | head -1)/address 2>/dev/null"
+        )
+        self.collected_data['mac_address'] = mac_address if mac_address else "Unknown"
+        
+        # Operating System
+        os_info = self._run_bash("cat /etc/os-release | grep PRETTY_NAME | cut -d'\"' -f2")
+        if not os_info:
+            os_info = self._run_bash("lsb_release -d | cut -f2")
+        self.collected_data['operating_system'] = os_info if os_info else "Linux (Unknown Distribution)"
+        
+        # OS Install Date (filesystem creation time)
+        install_timestamp = self._run_bash("stat -c '%W' / 2>/dev/null")
+        if install_timestamp and install_timestamp != "0":
+            try:
+                install_date = datetime.datetime.fromtimestamp(int(install_timestamp))
+                self.collected_data['os_install_date'] = install_date.strftime("%Y-%m-%d %H:%M:%S")
+            except (ValueError, OSError):
+                self.collected_data['os_install_date'] = "Unknown"
+        else:
+            self.collected_data['os_install_date'] = "Unknown"
+        
+        # BIOS Release Date
+        bios_date = self._run_bash("cat /sys/class/dmi/id/bios_date 2>/dev/null")
+        self.collected_data['bios_release_date'] = bios_date if bios_date else "Unknown"
+        
+        # Current User
+        username = self._run_bash("whoami")
+        self.collected_data['username'] = username if username else "Unknown"
+        
+        # Optional fields
+        self._collect_optional_linux_fields()
+    
+    def _collect_optional_linux_fields(self) -> None:
+        """Collect optional Linux fields if enabled in config"""
+        optional_fields = self.config.get('custom_fields', {}).get('optional_fields', {})
+        
+        # CPU Temperature
+        if optional_fields.get('cpu_temperature', {}).get('enabled', False):
+            temp = self._run_bash(
+                "cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null | awk '{printf \"%.1f\", $1/1000}'"
+            )
+            if temp:
+                self.collected_data['cpu_temperature'] = f"{temp}°C"
+            else:
+                self.collected_data['cpu_temperature'] = "Not Available"
+        
+        # System Uptime
+        if optional_fields.get('system_uptime', {}).get('enabled', False):
+            uptime = self._run_bash("awk '{printf \"%.2f\", $1/86400}' /proc/uptime")
+            self.collected_data['system_uptime'] = f"{uptime} days" if uptime else "Unknown"
+        
+        # Screen Size
+        if optional_fields.get('screen_size', {}).get('enabled', False):
+            # Try to get screen size from xrandr if available
+            screen = self._run_bash(
+                "xrandr 2>/dev/null | grep ' connected' | head -1 | awk '{print $3}' | cut -d'+' -f1"
+            )
+            self.collected_data['screen_size'] = screen if screen else "Unknown"
+    
+    def _collect_generic_data(self) -> None:
+        """Collect minimal data for unsupported operating systems"""
+        self.collected_data['hostname'] = platform.node()
+        self.collected_data['manufacturer'] = "Generic"
+        self.collected_data['model'] = "Generic Model"
+        self.collected_data['serial_number'] = "Unknown"
+        self.collected_data['operating_system'] = f"{self.os_type} {platform.release()}"
+        self.collected_data['processor'] = platform.processor() or "Unknown"
+        self.collected_data['username'] = "Unknown"
+    
+    def _map_to_custom_fields(self) -> None:
+        """
+        Map collected system data to Snipe-IT custom field format.
+        Uses display names from config or defaults to standard names.
+        """
+        # Standard field mapping (internal name -> display name)
         field_mapping = {
-            'os_version': 'Operating System',
+            'operating_system': 'Operating System',
             'os_install_date': 'OS Install Date',
             'memory_total_gb': 'Memory / RAM',
-            'memory_used_gb': 'RAM Usage',
-            'bios_date': 'BIOS Release Date',
+            'ram_usage': 'RAM Usage',
+            'bios_release_date': 'BIOS Release Date',
             'ip_address': 'IP Address',
             'processor': 'Processor / CPU',
-            'current_user': 'Windows Username',  # Keep this name for compatibility
-            'total_storage_gb': 'Total Storage',
-            'disk_used_gb': 'Disk Space Used',
-            'storage_info': 'Storage Information',
+            'username': 'Windows Username',
             'mac_address': 'MAC Address',
+            'total_storage_gb': 'Total Storage',
+            'storage_information': 'Storage Information',
+            'disk_space_used': 'Disk Space Used',
             'agent_version': 'Agent Version',
             'cpu_temperature': 'CPU Temperature',
-            'system_uptime': 'System Uptime (Days)'
+            'system_uptime': 'System Uptime (Days)',
+            'screen_size': 'Screen Size'
         }
         
-        for internal_name, display_name in field_mapping.items():
-            if internal_name in self.collected_data:
-                value = self.collected_data[internal_name]
-                if value and str(value).strip():
-                    self.custom_fields_data[display_name] = str(value).strip()
+        # Map collected data to custom fields
+        for internal_key, display_name in field_mapping.items():
+            if internal_key in self.collected_data:
+                value = self.collected_data[internal_key]
+                if value and str(value).strip() and str(value).strip().lower() != 'unknown':
+                    self.custom_fields[display_name] = str(value).strip()
     
-    def _validate_and_display(self):
-        """Validate and display collected data"""
-        print("\n📊 COLLECTED SYSTEM DATA:")
-        print("=" * 50)
+    def _run_powershell(self, command: str) -> Optional[str]:
+        """
+        Execute a PowerShell command and return the output
         
-        # Core system info
-        print("\n🖥️  CORE SYSTEM INFO:")
-        print(f"   OS Type: {self.os_type}")
-        print(f"   Hostname: {self.collected_data.get('hostname', 'N/A')}")
-        print(f"   Manufacturer: {self.collected_data.get('manufacturer', 'N/A')}")
-        print(f"   Model: {self.collected_data.get('model', 'N/A')}")
-        print(f"   Serial Number: {self.collected_data.get('serial_number', 'N/A')}")
-        
-        # Hardware info
-        print("\n💻 HARDWARE INFORMATION:")
-        print(f"   Processor: {self.collected_data.get('processor', 'N/A')}")
-        print(f"   Memory Total: {self.collected_data.get('memory_total_gb', 'N/A')}")
-        print(f"   Memory Used: {self.collected_data.get('memory_used_gb', 'N/A')}")
-        print(f"   Total Storage: {self.collected_data.get('total_storage_gb', 'N/A')}")
-        print(f"   Disk Used: {self.collected_data.get('disk_used_gb', 'N/A')}")
-        
-        # Network info
-        print("\n🌐 NETWORK INFORMATION:")
-        print(f"   IP Address: {self.collected_data.get('ip_address', 'N/A')}")
-        print(f"   MAC Address: {self.collected_data.get('mac_address', 'N/A')}")
-        
-        # Software info
-        print("\n🔧 SOFTWARE INFORMATION:")
-        print(f"   OS Version: {self.collected_data.get('os_version', 'N/A')}")
-        print(f"   Current User: {self.collected_data.get('current_user', 'N/A')}")
-        print(f"   Agent Version: {self.collected_data.get('agent_version', 'N/A')}")
-        
-        # Custom fields summary
-        print(f"\n📋 CUSTOM FIELDS PREPARED ({len(self.custom_fields_data)}):")
-        for field_name, value in self.custom_fields_data.items():
-            print(f"   ✅ {field_name}: {value}")
-        
-        print("\n" + "=" * 50)
+        Args:
+            command: PowerShell command to execute
+            
+        Returns:
+            Command output as string or None if command fails
+        """
+        try:
+            result = subprocess.run(
+                ['powershell', '-NoProfile', '-Command', command],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                output = result.stdout.strip()
+                return output if output else None
+            return None
+            
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+            return None
     
-    def get_asset_data(self):
-        """Get data formatted for asset creation/update"""
+    def _run_bash(self, command: str) -> Optional[str]:
+        """
+        Execute a bash command and return the output
+        
+        Args:
+            command: Bash command to execute
+            
+        Returns:
+            Command output as string or None if command fails
+        """
+        try:
+            result = subprocess.run(
+                ['bash', '-c', command],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0 and result.stdout:
+                output = result.stdout.strip()
+                return output if output else None
+            return None
+            
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+            return None
+    
+    def get_asset_data(self) -> Dict[str, Any]:
+        """
+        Get data formatted for Snipe-IT asset creation/update
+        
+        Returns:
+            Dictionary with asset data including hostname, manufacturer, model, serial, and custom fields
+        """
         return {
             'hostname': self.collected_data.get('hostname', 'Unknown'),
-            'manufacturer': self.collected_data.get('manufacturer', 'Generic Manufacturer'),
+            'manufacturer': self.collected_data.get('manufacturer', 'Generic'),
             'model': self.collected_data.get('model', 'Generic Model'),
             'serial_number': self.collected_data.get('serial_number', 'Unknown'),
-            'custom_fields': self.custom_fields_data
+            'custom_fields': self.custom_fields
         }
+    
+    def print_summary(self) -> None:
+        """Print a formatted summary of collected data"""
+        print("\n" + "="*60)
+        print(f"SYSTEM DATA COLLECTION SUMMARY - {self.os_type}")
+        print("="*60)
+        
+        print("\nCore System Information:")
+        print(f"  Hostname: {self.collected_data.get('hostname', 'N/A')}")
+        print(f"  Manufacturer: {self.collected_data.get('manufacturer', 'N/A')}")
+        print(f"  Model: {self.collected_data.get('model', 'N/A')}")
+        print(f"  Serial Number: {self.collected_data.get('serial_number', 'N/A')}")
+        
+        print("\nHardware Information:")
+        print(f"  Processor: {self.collected_data.get('processor', 'N/A')}")
+        print(f"  Memory: {self.collected_data.get('memory_total_gb', 'N/A')}")
+        print(f"  RAM Usage: {self.collected_data.get('ram_usage', 'N/A')}")
+        print(f"  Storage: {self.collected_data.get('total_storage_gb', 'N/A')}")
+        print(f"  Disk Usage: {self.collected_data.get('disk_space_used', 'N/A')}")
+        
+        print("\nNetwork Information:")
+        print(f"  IP Address: {self.collected_data.get('ip_address', 'N/A')}")
+        print(f"  MAC Address: {self.collected_data.get('mac_address', 'N/A')}")
+        
+        print("\nSoftware Information:")
+        print(f"  Operating System: {self.collected_data.get('operating_system', 'N/A')}")
+        print(f"  Current User: {self.collected_data.get('username', 'N/A')}")
+        print(f"  Agent Version: {self.collected_data.get('agent_version', 'N/A')}")
+        
+        print(f"\nCustom Fields Prepared: {len(self.custom_fields)}")
+        print("="*60 + "\n")
+
 
 if __name__ == "__main__":
     # Test the collector
+    print("Testing System Data Collector...")
+    print(f"Detected OS: {platform.system()}")
+    
     collector = SystemDataCollector()
-    result = collector.collect_all_data()
-    print(f"\n🎯 Collection completed for {result['os_type']}")
+    result = collector.collect_all()
+    
+    collector.print_summary()
+    
+    print("\nCustom Fields for Snipe-IT:")
+    for field_name, value in result['custom_fields'].items():
+        print(f"  {field_name}: {value}")

@@ -1,0 +1,139 @@
+# Sniper-IT Agent - Configuration File
+# Copy this file to 'config.yaml' and update with your Snipe-IT details
+# Or run: python main.py --setup
+
+# ============================================================================
+# SERVER CONFIGURATION
+# ============================================================================
+server:
+  # Snipe-IT server URL (without /api/v1 suffix)
+  url: "https://your-snipeit.com"
+  
+  # API key from Snipe-IT Settings > API Keys
+  api_key: "your_api_key_here"
+  
+  # SSL certificate verification
+  verify_ssl: true
+
+# ============================================================================
+# DEFAULT VALUES
+# ============================================================================
+defaults:
+  # Default status ID for new assets (2 = Ready to Deploy)
+  status_id: 2
+  
+  # Default company ID
+  company_id: 1
+  
+  # Default category ID (2 = Laptops, adjust as needed)
+  category_id: 2
+  
+  # Default fieldset ID for custom fields
+  fieldset_id: 1
+
+# ============================================================================
+# CUSTOM FIELDS CONFIGURATION
+# ============================================================================
+custom_fields:
+  # Basic system information fields (recommended to keep enabled)
+  basic_system_fields:
+    operating_system:
+      enabled: true
+      db_column: "_snipeit_operating_system_3"
+      display_name: "Operating System"
+    
+    os_install_date:
+      enabled: true
+      db_column: "_snipeit_os_install_date_4"
+      display_name: "OS Install Date"
+    
+    memory_ram:
+      enabled: true
+      db_column: "_snipeit_memory_ram_10"
+      display_name: "Memory / RAM"
+    
+    ram_usage:
+      enabled: true
+      db_column: "_snipeit_ram_usage_11"
+      display_name: "RAM Usage"
+    
+    bios_release_date:
+      enabled: true
+      db_column: "_snipeit_bios_release_date_12"
+      display_name: "BIOS Release Date"
+    
+    ip_address:
+      enabled: true
+      db_column: "_snipeit_ip_address_13"
+      display_name: "IP Address"
+    
+    processor_cpu:
+      enabled: true
+      db_column: "_snipeit_processor_cpu_14"
+      display_name: "Processor / CPU"
+    
+    username:
+      enabled: true
+      db_column: "_snipeit_windows_username_15"
+      display_name: "Windows Username"
+    
+    mac_address:
+      enabled: true
+      db_column: "_snipeit_mac_address_1"
+      display_name: "MAC Address"
+    
+    total_storage:
+      enabled: true
+      db_column: "_snipeit_total_storage_6"
+      display_name: "Total Storage"
+    
+    storage_information:
+      enabled: true
+      db_column: "_snipeit_storage_information_7"
+      display_name: "Storage Information"
+    
+    disk_space_used:
+      enabled: true
+      db_column: "_snipeit_disk_space_used_13"
+      display_name: "Disk Space Used"
+    
+    agent_version:
+      enabled: true
+      db_column: _snipeit_agent_version_14
+      display_name: "Agent Version"
+  
+  # Optional advanced fields (can be enabled as needed)
+  optional_fields:
+    cpu_temperature:
+      enabled: false
+      db_column: "_snipeit_cpu_temperature_20"
+      display_name: "CPU Temperature"
+    
+    system_uptime:
+      enabled: false
+      db_column: "_snipeit_uptime_21"
+      display_name: "Uptime"
+  
+  # Monitor/display fields (work in progress)
+  monitor_fields:
+    screen_size:
+      enabled: false
+      db_column: "_snipeit_screen_size_21"
+      display_name: "Screen Size"
+
+# ============================================================================
+# APPLICATION METADATA
+# ============================================================================
+metadata:
+  app_name: "Sniper-IT Agent"
+  version: "2.0.0"
+  last_updated: "2025-10-21"
+
+# ============================================================================
+# NOTES
+# ============================================================================
+# - Run 'python main.py --setup' to generate this file interactively
+# - DB column names (e.g., _snipeit_operating_system_3) must match your
+#   Snipe-IT custom field database column names exactly
+# - Use 'python main.py --generate-fields' to validate and create missing fields
+# - Set enabled: false to skip collecting a specific field

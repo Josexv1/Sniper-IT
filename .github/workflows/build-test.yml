@@ -35,9 +35,9 @@ jobs:
     - name: Test executable
       run: |
         if [ "${{ matrix.os }}" = "windows-2022" ]; then
-          ./dist/SniperIT-Agent.exe --help && echo "Windows executable test passed"
+          ./dist/Sniper-IT-Agent.exe --help && echo "Windows executable test passed"
         else
-          ./dist/SniperIT-Agent --help && echo "Linux executable test passed"
+          ./dist/Sniper-IT-Agent --help && echo "Linux executable test passed"
         fi
       shell: bash
 

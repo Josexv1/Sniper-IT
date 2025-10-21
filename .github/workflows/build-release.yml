@@ -19,12 +19,12 @@ jobs:
         include:
           - os: windows-2022
             display_name: Windows
-            artifact_name: SniperIT-Agent.exe
-            asset_name: SniperIT-Agent-Windows.exe
+            artifact_name: Sniper-IT-Agent.exe
+            asset_name: Sniper-IT-Agent-Windows.exe
           - os: ubuntu-24.04
             display_name: Linux
-            artifact_name: SniperIT-Agent
-            asset_name: SniperIT-Agent-Linux
+            artifact_name: Sniper-IT-Agent
+            asset_name: Sniper-IT-Agent-Linux
 
     steps:
     - name: Checkout code
@@ -42,9 +42,9 @@ jobs:
       run: |
         ls -la dist/
         if [ "${{ matrix.os }}" = "windows-2022" ]; then
-          ./dist/SniperIT-Agent.exe --help || echo "Windows executable created"
+          ./dist/Sniper-IT-Agent.exe --help || echo "Windows executable created"
         else
-          ./dist/SniperIT-Agent --help || echo "Linux executable created"
+          ./dist/Sniper-IT-Agent --help || echo "Linux executable created"
         fi
       shell: bash
 
@@ -67,20 +67,14 @@ jobs:
     - name: Download Windows artifact
       uses: actions/download-artifact@v4
       with:
-        name: SniperIT-Agent-Windows.exe
+        name: Sniper-IT-Agent-Windows.exe
         path: ./release/
 
     - name: Download Linux artifact
       uses: actions/download-artifact@v4
       with:
-        name: SniperIT-Agent-Linux
+        name: Sniper-IT-Agent-Linux
         path: ./release/
-
-    - name: Create source package
-      run: |
-        python package.py
-        mv SniperIT-Agent-Source.zip ./release/
-        mv SniperIT-Agent-Source.tar.gz ./release/
 
     - name: Get version from tag
       id: get_version
@@ -89,36 +83,36 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-        name: SniperIT Agent ${{ steps.get_version.outputs.VERSION }}
+        name: Sniper-IT Agent ${{ steps.get_version.outputs.VERSION }}
         body: |
-          ## SniperIT Agent ${{ steps.get_version.outputs.VERSION }}
+          ## Sniper-IT Agent ${{ steps.get_version.outputs.VERSION }}
           
           Cross-platform asset management agent for Snipe-IT integration.
           
           ### 📦 Downloads
-          - **Windows**: `SniperIT-Agent-Windows.exe` - Single file executable for Windows
-          - **Linux**: `SniperIT-Agent-Linux` - Single file executable for Linux  
-          - **Source**: `SniperIT-Agent-Source.zip` - Complete source code for building
+          - **Windows**: `Sniper-IT-Agent-Windows.exe` - Single file executable for Windows
+          - **Linux**: `Sniper-IT-Agent-Linux` - Single file executable for Linux
+          - **Source Code**: Available as zip/tar.gz below (GitHub auto-generated)
           
           ### 🚀 Quick Start
           1. Download the executable for your platform
-          2. Configure `config/config.ini` with your Snipe-IT details
-          3. Run: `./SniperIT-Agent --test-only` to test
-          4. Run: `./SniperIT-Agent` for full sync
+          2. Run setup wizard: `./Sniper-IT-Agent --setup`
+          3. Test configuration: `./Sniper-IT-Agent --test`
+          4. Run full sync: `./Sniper-IT-Agent`
           
           ### ⚙️ Features
           - Cross-platform Windows/Linux support
+          - Interactive setup wizard with validation
           - Hostname-based asset detection
-          - Comprehensive hardware/software data collection
-          - SSL certificate handling (-issl flag)
+          - Comprehensive hardware/software data collection  
+          - Monitor (display) detection and management
+          - SSL certificate handling (--issl flag)
           - Real-time sync verification
           
           For detailed setup instructions, see the [README](https://github.com/${{ github.repository }}/blob/main/README.md).
         files: |
-          ./release/SniperIT-Agent.exe
-          ./release/SniperIT-Agent
-          ./release/SniperIT-Agent-Source.zip
-          ./release/SniperIT-Agent-Source.tar.gz
+          ./release/Sniper-IT-Agent.exe
+          ./release/Sniper-IT-Agent
         draft: false
         prerelease: false
       env:

@@ -1,250 +1,275 @@
-# SniperIT Agent - Cross-Platform Asset Management Agent
+# Sniper-IT Agent
 
-[![Build Test](https://github.com/Josexv1/Sniper-IT/actions/workflows/build-test.yml/badge.svg)](https://github.com/Josexv1/Sniper-IT/actions/workflows/build-test.yml)
+**Version 2.0.0**
 
-SniperIT Agent is a Python-based agent that automatically syncs system information with your Snipe-IT asset management system. Features robust cross-platform support for both Windows and Linux.
+Automated asset management agent for Snipe-IT. Automatically collects laptop/desktop and monitor information, then synchronizes it to your Snipe-IT server.
 
-## 🎯 Key Features
+## Features
 
-- **🖥️ Cross-Platform**: Native support for Windows and Linux with OS-aware data collection
-- **🔍 Smart Asset Detection**: Finds assets by hostname, creates new ones if not found
-- **📊 Comprehensive Data Collection**: Hardware, software, network, and optional system metrics
-- **✅ Verified Sync**: Confirms data was actually saved in Snipe-IT with success metrics
-- **🛡️ Robust Error Handling**: Handles conflicts, SSL issues, and edge cases gracefully
-- **📦 Single-File Executables**: No external dependencies or config files needed
-- **⚙️ Configurable Fields**: Enable/disable data collection via simple configuration
+- **Automatic System Data Collection**
+  - Hardware info (manufacturer, model, serial number)
+  - OS details and installation date
+  - CPU, RAM, storage information
+  - Network details (IP, MAC address)
+  - BIOS information
+  - Agent version tracking
 
+- **Monitor Detection**
+  - Automatically detects external monitors
+  - Filters out internal laptop displays
+  - Captures resolution, refresh rate, connection type
+  - Automatically checks out monitors to parent laptop
 
-## 📋 Data Collected
+- **Smart Synchronization**
+  - Finds or creates manufacturers and models
+  - Updates existing assets or creates new ones
+  - Preserves asset tags
+  - Maps custom fields to Snipe-IT
+  - Validates data before pushing
 
-### Core System Information
-- **Hardware**: Manufacturer, Model, Serial Number, Processor/CPU
-- **Memory**: Total RAM, Current Usage
-- **Storage**: Total capacity, Used space, Drive details
-- **Network**: IP Address, MAC Address
-- **Software**: Operating System, OS Install Date, BIOS info, Current user
+- **Easy Setup**
+  - Interactive setup wizard
+  - Validates API connection
+  - Creates missing custom fields
+  - Generates configuration file
 
-### Optional Fields (Configurable)
-- **CPU Temperature**: Real-time thermal monitoring (Linux thermal sensors)
-- **System Uptime**: Days since last boot
-- **Monitor Details**: Screen size and display information (WIP)
-- **Agent Version**: SniperIT Agent version tracking
+## Requirements
 
-## 🔧 Quick Setup
+- Python 3.11+
+- Windows or Linux
+- Snipe-IT server with API access
+- Network access to Snipe-IT server
 
-### 1. Download and Extract
-Download the latest `SniperIT-Agent-Source.zip` and extract to your desired location.
+## Installation
 
-### 2. Configure Connection
-Edit `config/config.ini` with your Snipe-IT details:
-```ini
-[SERVER]
-site = https://your-snipeit.com/api/v1
-api_key = your_api_key_here
+1. Clone or download this repository
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+## Quick Start
+
+### 1. Run Setup Wizard
+
+Configure the agent and validate your Snipe-IT connection:
+
+```bash
+python main.py --setup
 ```
 
-### 3. Build Executable
+The wizard will guide you through:
+- Testing API connection
+- Selecting company, categories, and fieldsets
+- Validating custom fields
+- Creating missing fields
+- Generating `config.yaml`
+
+**For self-signed SSL certificates:**
 ```bash
-# Works on Windows, Linux, and macOS
+python main.py --setup --issl
+```
+
+### 2. Test Data Collection
+
+Test the agent without pushing data to Snipe-IT:
+
+```bash
+python main.py --test --issl
+```
+
+This will:
+- Collect system data
+- Detect monitors
+- Display all collected information
+- **NOT** push to Snipe-IT
+
+### 3. Run Sync
+
+Synchronize your assets to Snipe-IT:
+
+```bash
+python main.py --issl
+```
+
+The agent will:
+1. Collect system information
+2. Detect external monitors
+3. Find or create manufacturers/models
+4. Update or create laptop asset
+5. Update or create monitor assets
+6. Check out monitors to laptop
+7. Display summary
+
+## Configuration
+
+After running setup, edit `config.yaml` if needed:
+
+```yaml
+server:
+  url: https://your-snipeit-server.com
+  api_key: your_api_key_here
+  verify_ssl: false
+
+defaults:
+  status_id: 2
+  company_id: 1
+  laptop_category_id: 2
+  laptop_fieldset_id: 1
+  monitor_category_id: 38
+  monitor_fieldset_id: 3
+
+custom_fields:
+  # Field mappings...
+```
+
+## Building Executable
+
+Build a standalone executable for distribution:
+
+```bash
 python build.py
 ```
 
-The build script automatically:
-- ✅ Creates virtual environment if needed
-- ✅ Installs all required dependencies  
-- ✅ Builds single-file executable with bundled config files
-- ✅ Works on all platforms with zero configuration
+This creates:
+- `dist/Sniper-IT-Agent.exe` - Standalone executable
+- No Python installation required on target machines
 
-## 💻 Usage
+## Command-Line Options
 
-### Testing (No Sync)
-```bash
-# Test data collection without sending to Snipe-IT
-./dist/SniperIT-Agent --test-only
+| Flag | Description |
+|------|-------------|
+| `--setup` | Run interactive setup wizard |
+| `--test` | Test mode - collect data but don't push to Snipe-IT |
+| `--issl` | Ignore SSL certificate verification |
+| `--version` | Display version information |
 
-# Test with SSL certificate bypass
-./dist/SniperIT-Agent --test-only -issl
-```
+## How It Works
 
-### Production Sync
-```bash
-# Full sync to Snipe-IT
-./dist/SniperIT-Agent
+### Data Collection
 
-# With SSL bypass for self-signed certificates
-./dist/SniperIT-Agent -issl
+1. **System Information**
+   - Uses PowerShell (Windows) or bash commands (Linux)
+   - Non-admin privileges required
+   - Collects hardware, OS, network details
 
-# Generate missing fieldsets and models
-./dist/SniperIT-Agent --generate-fields -issl
-```
+2. **Monitor Detection**
+   - Windows: Uses WMI and D3DKMDT APIs
+   - Linux: Uses xrandr
+   - Filters out internal laptop displays
+   - Captures manufacturer, model, serial, resolution
 
-### Available Commands
-- `--test-only` - Test data collection without syncing
-- `--generate-fields` - Create missing fieldsets and models in Snipe-IT
-- `-issl` - Ignore SSL certificate verification
-- `--help` - Show all available options
+### Synchronization Process
 
-## 📊 Success Metrics
+1. **Manufacturer Management**
+   - Searches for existing manufacturer
+   - Creates if not found
 
-The application provides detailed reporting:
-```
-🎉 SYNC COMPLETED SUCCESSFULLY!
-📊 Asset Processing: Found existing asset (ID: 124)
-📊 Custom Fields Success Rate: 100.0% (13/13 fields)
-📊 Verification: All data confirmed in Snipe-IT
-✅ Excellent sync quality!
-```
+2. **Model Management**
+   - Searches for existing model
+   - Creates with correct category and fieldset
+   - Links to manufacturer
 
-## 🏗️ Building for Different Platforms
+3. **Asset Management**
+   - Searches by hostname
+   - Updates existing asset or creates new
+   - Preserves asset tags
+   - Maps custom fields
 
-### Simple One-Command Build
-```bash
-python build.py  # Works on any platform
-```
+4. **Monitor Checkout**
+   - After creating/updating monitor
+   - Automatically checks out to parent laptop
+   - Creates asset hierarchy
 
-### Platform-Specific Outputs
-- **Windows**: `dist/SniperIT-Agent.exe` (~11 MB)
-- **Linux**: `dist/SniperIT-Agent` (~11 MB)
-- **macOS**: `dist/SniperIT-Agent` (~11 MB)
-
-### Cross-Platform Building
-**Important**: PyInstaller can only build for the current OS:
-- Build **Windows .exe** → Run on Windows machine
-- Build **Linux binary** → Run on Linux machine
-
-**Options for multi-platform builds:**
-1. **Separate Machines**: Build on each target OS
-2. **Virtual Machines**: Use VMs for different OS builds
-3. **WSL**: Use Windows Subsystem for Linux for Linux builds
-4. **CI/CD**: GitHub Actions with multiple OS runners
-
-### Build Process
-1. **Environment Setup**: Auto-creates virtual environment
-2. **Dependency Installation**: Installs requirements automatically
-3. **Clean Build**: Removes previous artifacts
-4. **Executable Creation**: Uses PyInstaller with optimized settings
-5. **Validation**: Confirms successful build
-
-## ⚙️ Configuration
-
-### Field Configuration
-Edit `config/custom_fields.json` to enable/disable data collection:
-
-```json
-{
-  "field_configuration": {
-    "basic_system_fields": {
-      "operating_system": {"enabled": true, "field_name": "_snipeit_os_3"},
-      "memory_ram": {"enabled": true, "field_name": "_snipeit_memory_10"}
-    },
-    "optional_fields": {
-      "cpu_temperature": {"enabled": false, "field_name": "_snipeit_temp_20"},
-      "system_uptime": {"enabled": false, "field_name": "_snipeit_uptime_21"}
-    }
-  }
-}
-```
-
-### Advanced Configuration
-- **Basic Fields**: Core system information (always recommended)
-- **Optional Fields**: Additional metrics (enable as needed)
-- **Monitor Fields**: Display/screen information
-- **Field Names**: Match your Snipe-IT custom field database names
-
-## 🏛️ Project Architecture
-
-### 📁 Clean Structure (Production Ready)
+## Project Structure
 
 ```
-SniperIT-Agent/
-├── main.py                     # 🚀 Main entry point & CLI handling
-├── build.py                    # 🏗️ Cross-platform build script  
-├── requirements.txt            # 📋 Python dependencies
-├── SniperIT-Agent.spec         # ⚙️ PyInstaller build configuration
-├── collectors/
-│   └── system_collector.py     # 🖥️ ALL OS commands & data collection
-├── managers/
-│   ├── asset_manager.py        # 📊 Asset processing & API handling
-│   └── fieldset_manager.py     # 📝 Fieldset validation & creation
-├── config/
-│   ├── config.ini              # 🔧 Snipe-IT API configuration
-│   ├── custom_fields.json      # 📝 Field mapping (NO PowerShell commands)
-│   ├── constants.py            # 📋 Version & app constants
-│   └── settings.py             # ⚙️ Configuration management
-└── utils/
-    ├── common.py               # 🛠️ OS utilities & command conversion
-    └── exception.py            # 🚨 Error handling
+Sniper-IT/
+├── main.py                 # Entry point
+├── build.py                # Build script for executable
+├── config.yaml            # Configuration file
+├── config.example.yaml    # Example configuration
+│
+├── cli/                   # CLI formatting and prompts
+│   ├── formatters.py
+│   └── __init__.py
+│
+├── collectors/            # Data collection modules
+│   ├── system_collector.py    # System data
+│   ├── monitor_collector.py   # Monitor data
+│   └── __init__.py
+│
+├── core/                  # Core functionality
+│   ├── api_client.py          # Snipe-IT API wrapper
+│   ├── config_manager.py      # Configuration handling
+│   ├── constants.py           # Application constants
+│   └── __init__.py
+│
+├── managers/              # Business logic
+│   ├── setup_manager.py       # Setup wizard
+│   ├── asset_manager.py       # Laptop/desktop assets
+│   ├── monitor_manager.py     # Monitor assets
+│   ├── sync_manager.py        # Synchronization orchestration
+│   └── __init__.py
+│
+└── utils/                 # Utilities
+    ├── exceptions.py          # Custom exceptions
+    └── __init__.py
 ```
 
-### ✅ Key Architectural Improvements
+## Deployment
 
-1. **🎯 Centralized Commands**: ALL OS commands in `system_collector.py` (no scattered PowerShell)
-2. **📦 Clean Configuration**: JSON files contain only mappings, no executable code
-3. **🔄 Unified Build**: Single build script works on all platforms
-4. **🧪 Modular Design**: Each component testable independently
-5. **📖 Self-Documenting**: Clear file names and structure
-6. **🗂️ Organized**: Logical grouping by functionality
-7. **🚀 Production Ready**: Single-file executables with bundled configs
+### As Scheduled Task (Windows)
 
-## 🔄 Workflow
+1. Build the executable: `python build.py`
+2. Copy `Sniper-IT-Agent.exe` and `config.yaml` to target machines
+3. Create a scheduled task:
+   ```powershell
+   schtasks /create /tn "Sniper-IT Sync" /tr "C:\Path\To\Sniper-IT-Agent.exe --issl" /sc daily /st 09:00
+   ```
 
-1. **OS Detection** → Automatically detect Windows/Linux and use appropriate commands
-2. **Data Collection** → Gather comprehensive system information via `system_collector.py`
-3. **Manufacturer Processing** → Find existing or create new manufacturer
-4. **Model Processing** → Find/create model with proper fieldset assignment
-5. **Asset Detection** → Search by hostname in Snipe-IT database
-6. **Asset Sync** → Create new asset or update existing with collected data
-7. **Verification** → Confirm all data was saved correctly via API verification
+### As Cron Job (Linux)
 
-## 🛠️ Development
+1. Install on target machine
+2. Add to crontab:
+   ```bash
+   crontab -e
+   # Run daily at 9 AM
+   0 9 * * * /path/to/main.py --issl
+   ```
 
-### Requirements
-- **Python 3.8+**
-- **Virtual Environment** (auto-created by build script)
-- **Dependencies**: `requests`, `urllib3`, `pyinstaller`
+## Troubleshooting
 
-### Development Setup
-```bash
-# Clone/download the project
-python build.py                 # Sets up everything automatically
+### "Authentication failed - check your API key"
+- Verify API key is valid in Snipe-IT
+- Check key has not expired
+- Ensure proper permissions
 
-# Manual setup (optional)
-python -m venv .venv
-source .venv/bin/activate       # Linux/Mac
-.venv\Scripts\activate          # Windows
-pip install -r requirements.txt
-```
+### "This field seems to exist, but is not available on this Asset Model's fieldset"
+- Run setup again: `python main.py --setup --issl`
+- The wizard will associate fields with fieldsets
 
-### Testing
-```bash
-# Test system collector directly
-python -c "from collectors.system_collector import SystemDataCollector; SystemDataCollector().collect_all_data()"
+### "No external monitors detected"
+- Expected if only using laptop screen
+- Internal displays are automatically filtered
+- Check monitor is connected and powered on
 
-# Test main application
-python main.py --test-only
-```
+### SSL Certificate Errors
+- Use `--issl` flag to ignore SSL verification
+- Or add valid SSL certificate to Snipe-IT server
 
-### Development Notes
-- **All OS commands** are centralized in `collectors/system_collector.py`
-- **Configuration-driven** field collection
-- **Cross-platform** command handling with automatic OS detection
-- **Error handling** for unsupported hardware/systems
+## License
 
-## 📋 Enterprise Deployment
+This project is internal software for Feilo Sylvania Europe Ltd.
 
-### Group Policy Integration (Windows)
-1. Place executable in network-accessible location
-2. Create GPO with scheduled task
-3. Set "on idle" trigger based on your requirements
-4. Run as SYSTEM user for optimal execution
-5. Use `-issl` flag for internal certificate authorities
+## Version History
 
-### Linux Deployment
-1. Deploy via configuration management (Ansible, Puppet, etc.)
-2. Create systemd service or cron job
-3. Use system package managers for distribution
-4. Consider running with sudo for hardware access
-
-## 📝 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+### 2.0.0 (2025-10-21)
+- Complete rewrite with modular architecture
+- Added monitor detection and tracking
+- Automatic monitor checkout to parent laptop
+- Interactive setup wizard
+- Field-to-fieldset association
+- Improved error handling
+- Test mode for safe validation
+- Custom field mapping system

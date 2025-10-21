@@ -24,7 +24,7 @@ A clear description of what you expected to happen.
  - Snipe-IT Version: [e.g. v6.0.0]
 
 **Configuration**
-- SSL mode: [enabled/disabled (-issl flag)]
+- SSL mode: [enabled/disabled (--issl flag)]
 - Self-signed certificates: [yes/no]
 
 **Logs/Output**

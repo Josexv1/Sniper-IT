@@ -1,2 +1,0 @@
-APPLICATION_NAME = 'SniperIT Agent'
-VERSION = 'v0.2.6'
