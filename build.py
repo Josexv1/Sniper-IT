@@ -15,6 +15,11 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 
+# Configure UTF-8 encoding for console output on Windows
+if sys.version_info >= (3, 7) and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
 # ANSI color codes for output
 class Colors:
     HEADER = '\033[95m'
@@ -367,7 +372,7 @@ def inject_build_metadata():
     build_info_path = Path('core/build_info.json')
     build_info_path.parent.mkdir(exist_ok=True)
     
-    with open(build_info_path, 'w') as f:
+    with open(build_info_path, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2)
     
     print_success(f"Build metadata created: {build_info_path}")
@@ -458,7 +463,7 @@ def generate_checksums(exe_path):
     
     # Save checksums to file
     checksum_file = exe_path.parent / f"{exe_path.name}.checksums.txt"
-    with open(checksum_file, 'w') as f:
+    with open(checksum_file, 'w', encoding='utf-8') as f:
         f.write(f"PyIT Agent - Checksums\n")
         f.write(f"{'=' * 60}\n")
         f.write(f"File: {exe_path.name}\n")
@@ -491,7 +496,7 @@ def create_build_report(metadata, exe_path, checksums):
     
     # Save JSON report
     report_file = Path(f'build-report-{version}.json')
-    with open(report_file, 'w') as f:
+    with open(report_file, 'w', encoding='utf-8') as f:
         json.dump(report, f, indent=2)
     
     print_success(f"Build report created: {report_file}")
@@ -499,7 +504,7 @@ def create_build_report(metadata, exe_path, checksums):
     # Create human-readable report
     readme_file = Path('dist/README.txt')
     if exe_path:
-        with open(readme_file, 'w') as f:
+        with open(readme_file, 'w', encoding='utf-8') as f:
             f.write(f"Sniper-IT Agent v{version}\n")
             f.write(f"{'=' * 60}\n\n")
             f.write(f"Build Information:\n")
