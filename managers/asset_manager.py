@@ -68,14 +68,14 @@ class AssetManager:
     
     def process_asset(self, system_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Process laptop/desktop asset end-to-end
+        Process laptop/desktop/server asset end-to-end
         
         Args:
             system_data: Dictionary containing:
                 - system_data: Core system information
                 - custom_fields: Custom field data
                 - os_type: Operating system type
-                - is_laptop: Boolean indicating if device is a laptop
+                - asset_type: Asset type ("laptop", "desktop", or "server")
                 
         Returns:
             Dictionary with processing results or None if failed

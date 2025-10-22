@@ -41,6 +41,7 @@ class SystemDataCollector:
                 - system_data: Core system information
                 - custom_fields: Data formatted for Snipe-IT custom fields
                 - os_type: Operating system type
+                - asset_type: Asset type ("laptop", "desktop", or "server")
                 
         Raises:
             DataCollectionError: If critical data collection fails
@@ -62,7 +63,8 @@ class SystemDataCollector:
             return {
                 'system_data': self.collected_data,
                 'custom_fields': self.custom_fields,
-                'os_type': self.os_type
+                'os_type': self.os_type,
+                'asset_type': self.get_asset_type()  # "laptop", "desktop", or "server"
             }
             
         except Exception as e:
