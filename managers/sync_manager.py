@@ -269,7 +269,6 @@ class SyncManager:
             with spinner("💻 Syncing computer asset to Snipe-IT...", "dots"):
                 asset_result = self.asset_manager.process_asset(system_data)
         else:
-            self.logger.verbose(f"{STATUS_INFO} Processing computer asset...")
             asset_result = self.asset_manager.process_asset(system_data)
         
         if not asset_result:
@@ -373,7 +372,19 @@ class SyncManager:
         console.print("[bold cyan]Computer Asset:[/bold cyan]")
         console.print(f"  Asset ID:       {asset_result.get('asset_id', 'N/A')}")
         console.print(f"  Hostname:       {asset_result.get('hostname', 'N/A')}")
-        console.print(f"  Action:         {asset_result.get('action', 'N/A').upper()}")
+        
+        action = asset_result.get('action', 'N/A')
+        if action == 'no_change':
+            console.print(f"  Action:         NO CHANGES (already up to date)")
+        else:
+            console.print(f"  Action:         {action.upper()}")
+        
+        # Show what changed if updated
+        changes = asset_result.get('changes')
+        if changes and len(changes) > 0:
+            console.print(f"  Changes:")
+            for change in changes:
+                console.print(f"    • {change}")
         
         verification = asset_result.get('verification', {})
         if verification:

@@ -183,12 +183,13 @@ class AssetManager:
             if existing_asset_id:
                 self.logger.verbose(f"{STATUS_OK} Found existing asset ID: {existing_asset_id}")
                 
-                # Get existing data to check category
+                # Get existing data to check category and asset tag
                 existing_data = self.api.get_hardware_by_id(existing_asset_id)
                 existing_model = existing_data.get('model', {})
                 existing_category = existing_model.get('category', {})
                 existing_category_id = existing_category.get('id')
                 existing_category_name = existing_category.get('name', 'Unknown')
+                existing_asset_tag = existing_data.get('asset_tag', '')
                 
                 # Check if asset is in wrong category
                 if existing_category_id and existing_category_id != category_id:
@@ -197,19 +198,30 @@ class AssetManager:
                     self.logger.verbose(f"    Expected category: {asset_type_display} (ID: {category_id})")
                     self.logger.verbose(f"{STATUS_INFO} Updating asset to correct category...")
                 
-                # Always generate asset tag based on naming convention
-                payload['asset_tag'] = self._generate_asset_tag(hostname)
-                self.logger.verbose(f"{STATUS_INFO} Using asset tag: {payload['asset_tag']}")
+                # Preserve existing asset tag if it matches naming convention, otherwise generate new one
+                payload['asset_tag'] = self._generate_or_preserve_asset_tag(hostname, existing_asset_tag)
+                self.logger.verbose(f"{STATUS_INFO} Asset tag: {payload['asset_tag']}")
                 
-                self.logger.verbose(f"{STATUS_INFO} Updating asset...")
-                result = self.api.update_hardware(existing_asset_id, payload)
+                # Track changes between existing and new data
+                changes = self._detect_changes(existing_data, payload, model_id)
                 
-                if result.get('status') == 'success':
-                    self.logger.verbose(f"{STATUS_OK} Asset updated successfully")
+                if not changes:
+                    self.logger.verbose(f"{STATUS_OK} No changes detected - asset is already up to date")
                     asset_id = existing_asset_id
                 else:
-                    print_error(f"Update failed: {result.get('messages', 'Unknown error')}")
-                    return None
+                    self.logger.verbose(f"{STATUS_INFO} Detected {len(changes)} change(s)")
+                    for change in changes:
+                        self.logger.debug(f"    • {change}")
+                    
+                    self.logger.verbose(f"{STATUS_INFO} Updating asset...")
+                    result = self.api.update_hardware(existing_asset_id, payload)
+                    
+                    if result.get('status') == 'success':
+                        self.logger.verbose(f"{STATUS_OK} Asset updated successfully")
+                        asset_id = existing_asset_id
+                    else:
+                        print_error(f"Update failed: {result.get('messages', 'Unknown error')}")
+                        return None
             else:
                 self.logger.verbose(f"{STATUS_INFO} No existing asset found - creating new")
                 # Generate asset tag based on naming convention
@@ -234,13 +246,21 @@ class AssetManager:
             self.logger.verbose(f"{STATUS_OK} {asset_type_display} asset processing completed")
             self.logger.verbose("")
             
+            # Determine action and changes
+            if existing_asset_id:
+                action = 'updated' if changes else 'no_change'
+            else:
+                action = 'created'
+                changes = None
+            
             return {
                 'asset_id': asset_id,
                 'hostname': hostname,
                 'manufacturer_id': manufacturer_id,
                 'model_id': model_id,
                 'verification': verification,
-                'action': 'updated' if existing_asset_id else 'created'
+                'action': action,
+                'changes': changes
             }
             
         except APIError as e:
@@ -293,10 +313,34 @@ class AssetManager:
                 'error': str(e)
             }
     
+    def _generate_or_preserve_asset_tag(self, hostname: str, existing_tag: str = '') -> str:
+        """
+        Generate asset tag based on naming convention or preserve existing valid tag.
+        
+        Args:
+            hostname: Computer hostname to use as fallback
+            existing_tag: Existing asset tag (if updating an asset)
+            
+        Returns:
+            Asset tag string (e.g., MIS-2025-0027)
+        """
+        naming_convention = self.defaults.get('naming_convention', '').strip()
+        
+        # If no naming convention, use hostname
+        if not naming_convention:
+            return hostname
+        
+        # Check if existing tag matches the naming convention pattern
+        if existing_tag and self._tag_matches_pattern(existing_tag, naming_convention):
+            self.logger.debug(f"{STATUS_INFO} Preserving existing asset tag: {existing_tag}")
+            return existing_tag
+        
+        # Generate new tag
+        return self._generate_asset_tag(hostname)
+    
     def _generate_asset_tag(self, hostname: str) -> str:
         """
-        Generate asset tag based on naming convention or use hostname.
-        Always generates a new tag - does not preserve existing tags.
+        Generate new asset tag based on naming convention.
         
         Args:
             hostname: Computer hostname to use as fallback
@@ -312,22 +356,49 @@ class AssetManager:
         
         # Find the last asset with this naming pattern
         try:
+            self.logger.debug(f"{STATUS_INFO} Searching for assets with pattern: {naming_convention}")
             last_tag = self._find_last_asset_tag(naming_convention)
             
             if last_tag:
                 # Extract number and increment
-                next_number = self._extract_and_increment_number(last_tag, naming_convention)
-                new_tag = naming_convention.replace('N', str(next_number).zfill(len(str(next_number))))
+                current_number = self._extract_number_from_tag(last_tag, naming_convention)
+                next_number = current_number + 1
+                
+                # Determine padding from pattern or last tag
+                num_digits = len(str(current_number))
+                new_tag = naming_convention.replace('N', str(next_number).zfill(num_digits))
+                
+                self.logger.debug(f"{STATUS_INFO} Found last tag: {last_tag} (#{current_number})")
+                self.logger.debug(f"{STATUS_INFO} Generated new tag: {new_tag} (#{next_number})")
                 return new_tag
             else:
                 # No existing assets found - start with 0001
                 new_tag = naming_convention.replace('N', '0001')
+                self.logger.debug(f"{STATUS_INFO} No existing tags found, starting with: {new_tag}")
                 return new_tag
                 
         except Exception as e:
             self.logger.verbose(f"{STATUS_WARNING} Asset tag generation failed: {e}")
             self.logger.verbose(f"{STATUS_INFO} Falling back to hostname")
             return hostname
+    
+    def _tag_matches_pattern(self, tag: str, pattern: str) -> bool:
+        """
+        Check if an asset tag matches the naming convention pattern.
+        
+        Args:
+            tag: Asset tag to check (e.g., 'MIS-2025-0027')
+            pattern: Pattern with 'N' placeholder (e.g., 'MIS-2025-N')
+            
+        Returns:
+            True if tag matches pattern, False otherwise
+        """
+        if not tag or not pattern:
+            return False
+        
+        # Convert pattern to regex
+        regex_pattern = re.escape(pattern).replace('N', r'(\d+)')
+        return bool(re.fullmatch(regex_pattern, tag))
     
     def _find_last_asset_tag(self, pattern: str) -> Optional[str]:
         """
@@ -343,9 +414,13 @@ class AssetManager:
         # For pattern "MIS-2026-N" we search for "MIS-2026"
         search_prefix = pattern.split('N')[0]
         
+        self.logger.debug(f"{STATUS_INFO} Searching for asset tags starting with: {search_prefix}")
+        
         # Search for assets with this prefix
-        # Note: Snipe-IT search is limited, so we fetch laptops and filter
+        # Note: Snipe-IT search is limited, so we fetch up to 500 assets and filter
         search_results = self.api.search_hardware(search_prefix, limit=500)
+        
+        self.logger.debug(f"{STATUS_INFO} Found {len(search_results)} assets in search results")
         
         matching_tags = []
         
@@ -358,11 +433,16 @@ class AssetManager:
             if re.fullmatch(regex_pattern, asset_tag):
                 matching_tags.append(asset_tag)
         
+        self.logger.debug(f"{STATUS_INFO} Found {len(matching_tags)} assets matching pattern '{pattern}'")
+        
         if not matching_tags:
             return None
         
         # Sort by the numeric part and return the last one
         matching_tags.sort(key=lambda tag: self._extract_number_from_tag(tag, pattern))
+        
+        self.logger.debug(f"{STATUS_INFO} Highest tag in sequence: {matching_tags[-1]}")
+        
         return matching_tags[-1]
     
     def _extract_number_from_tag(self, tag: str, pattern: str) -> int:
@@ -383,19 +463,70 @@ class AssetManager:
             return int(match.group(1))
         return 0
     
-    def _extract_and_increment_number(self, last_tag: str, pattern: str) -> int:
+    
+    def _detect_changes(self, existing_data: Dict[str, Any], new_payload: Dict[str, Any], new_model_id: int) -> list:
         """
-        Extract number from last tag and increment by 1
+        Detect changes between existing asset data and new payload.
         
         Args:
-            last_tag: Last asset tag found (e.g., 'MIS-2026-0026')
-            pattern: Pattern with 'N' (e.g., 'MIS-2026-N')
+            existing_data: Existing asset data from Snipe-IT
+            new_payload: New payload to be sent
+            new_model_id: New model ID
             
         Returns:
-            Incremented number
+            List of change descriptions (empty if no changes)
         """
-        current_number = self._extract_number_from_tag(last_tag, pattern)
-        return current_number + 1
+        changes = []
+        
+        # Check model change
+        existing_model_id = existing_data.get('model', {}).get('id')
+        if existing_model_id and existing_model_id != new_model_id:
+            existing_model_name = existing_data.get('model', {}).get('name', 'Unknown')
+            changes.append(f"Model changed (was: {existing_model_name})")
+        
+        # Check asset tag change
+        existing_tag = existing_data.get('asset_tag', '')
+        new_tag = new_payload.get('asset_tag', '')
+        if existing_tag != new_tag:
+            changes.append(f"Asset tag changed: {existing_tag} → {new_tag}")
+        
+        # Check serial change
+        existing_serial = existing_data.get('serial', '')
+        new_serial = new_payload.get('serial', '')
+        if existing_serial != new_serial:
+            changes.append(f"Serial changed: {existing_serial} → {new_serial}")
+        
+        # Check status change
+        existing_status_id = existing_data.get('status_label', {}).get('id')
+        new_status_id = new_payload.get('status_id')
+        if existing_status_id and existing_status_id != new_status_id:
+            existing_status_name = existing_data.get('status_label', {}).get('name', 'Unknown')
+            changes.append(f"Status changed (was: {existing_status_name})")
+        
+        # Check custom fields changes
+        existing_custom_fields = existing_data.get('custom_fields', {})
+        custom_field_changes = 0
+        
+        for field_key, field_value in new_payload.items():
+            if field_key.startswith('_snipeit_'):
+                # This is a custom field
+                field_name = field_key.replace('_snipeit_', '').replace('_', ' ').title()
+                
+                # Find matching field in existing data
+                existing_value = None
+                for cf_key, cf_data in existing_custom_fields.items():
+                    if cf_data.get('field') == field_key:
+                        existing_value = cf_data.get('value', '')
+                        break
+                
+                # Compare values (normalize to strings)
+                if str(existing_value or '') != str(field_value or ''):
+                    custom_field_changes += 1
+        
+        if custom_field_changes > 0:
+            changes.append(f"{custom_field_changes} custom field(s) updated")
+        
+        return changes
     
     def _is_serial_valid(self, serial: str) -> bool:
         """
