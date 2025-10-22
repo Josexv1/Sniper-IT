@@ -223,8 +223,10 @@ class MonitorManager:
                 
                 if existing_tag:
                     payload['asset_tag'] = existing_tag
+                    self.logger.verbose(f"  {STATUS_INFO} Preserving asset tag: {existing_tag}")
                 else:
                     payload['asset_tag'] = payload['serial']
+                    self.logger.verbose(f"  {STATUS_INFO} Using serial as asset tag: {payload['serial']}")
                 
                 self.logger.verbose(f"  {STATUS_INFO} Updating monitor...")
                 result = self.api.update_hardware(existing_asset_id, payload)
@@ -233,12 +235,21 @@ class MonitorManager:
                     self.logger.verbose(f"  {STATUS_OK} Monitor updated successfully")
                     asset_id = existing_asset_id
                     action = 'updated'
+                    
+                    # Verify asset tag was preserved
+                    updated_data = self.api.get_hardware_by_id(asset_id)
+                    updated_tag = updated_data.get('asset_tag', '')
+                    if updated_tag and updated_tag != existing_tag:
+                        self.logger.verbose(f"  {STATUS_WARNING} Asset tag changed: {existing_tag} -> {updated_tag}")
+                    elif updated_tag:
+                        self.logger.verbose(f"  {STATUS_OK} Asset tag verified: {updated_tag}")
                 else:
                     print_error(f"Update failed: {result.get('messages', 'Unknown error')}")
                     return None
             else:
                 self.logger.verbose(f"  {STATUS_INFO} Creating new monitor...")
                 payload['asset_tag'] = payload['serial']
+                self.logger.verbose(f"  {STATUS_INFO} Asset tag: {payload['serial']}")
                 
                 result = self.api.create_hardware(payload)
                 
@@ -250,22 +261,57 @@ class MonitorManager:
                     print_error(f"Creation failed: {result.get('messages', 'Unknown error')}")
                     return None
             
-            # Step 6: Checkout monitor to parent laptop (if provided)
+            # Step 6: Checkout monitor to user (if parent asset is provided)
+            assigned_user_id = None
+            assigned_user_name = None
             if parent_asset_id:
-                self.logger.verbose(f"  {STATUS_INFO} Checking out monitor to laptop (Asset #{parent_asset_id})...")
                 try:
-                    checkout_result = self.api.checkout_hardware(
-                        asset_id=asset_id,
-                        checkout_to_type='asset',
-                        assigned_id=parent_asset_id,
-                        status_id=self.defaults.get('status_id', 2),
-                        note=f"Auto-assigned to {parent_hostname}"
-                    )
+                    # Get parent asset details to find the assigned user
+                    self.logger.verbose(f"  {STATUS_INFO} Retrieving parent asset details...")
+                    parent_asset = self.api.get_hardware_by_id(parent_asset_id)
                     
-                    if checkout_result.get('status') == 'success':
-                        self.logger.verbose(f"  {STATUS_OK} Monitor checked out to laptop")
+                    # Check if parent asset is assigned to a user
+                    assigned_to = parent_asset.get('assigned_to')
+                    if assigned_to and assigned_to.get('type') == 'user':
+                        assigned_user_id = assigned_to.get('id')
+                        assigned_user_name = assigned_to.get('name', 'Unknown User')
+                        
+                        # Check if monitor is already checked out - if so, check it in first
+                        monitor_data = self.api.get_hardware_by_id(asset_id)
+                        if monitor_data.get('assigned_to'):
+                            self.logger.verbose(f"  {STATUS_INFO} Monitor is currently checked out - checking in first...")
+                            checkin_result = self.api.checkin_hardware(
+                                asset_id=asset_id,
+                                note="Auto-checkin before reassignment"
+                            )
+                            if checkin_result.get('status') == 'success':
+                                self.logger.verbose(f"  {STATUS_OK} Monitor checked in successfully")
+                            else:
+                                self.logger.verbose(f"  {STATUS_WARNING} Checkin warning: {checkin_result.get('messages', 'Unknown')}")
+                        
+                        self.logger.verbose(f"  {STATUS_INFO} Checking out monitor to user: {assigned_user_name}...")
+                        
+                        # Create note with device connection info
+                        checkout_note = f"Connected to {parent_hostname} (Asset #{parent_asset_id})"
+                        
+                        checkout_result = self.api.checkout_hardware(
+                            asset_id=asset_id,
+                            checkout_to_type='user',
+                            assigned_id=assigned_user_id,
+                            status_id=self.defaults.get('status_id', 2),
+                            note=checkout_note
+                        )
+                        
+                        if checkout_result.get('status') == 'success':
+                            self.logger.verbose(f"  {STATUS_OK} Monitor checked out to user: {assigned_user_name}")
+                            self.logger.verbose(f"  {STATUS_INFO} Checkout note added: '{checkout_note}'")
+                            self.logger.verbose(f"  {STATUS_INFO} (View in Snipe-IT History tab for this asset)")
+                        else:
+                            self.logger.verbose(f"  {STATUS_WARNING} Checkout warning: {checkout_result.get('messages', 'Unknown')}")
                     else:
-                        self.logger.verbose(f"  {STATUS_WARNING} Checkout warning: {checkout_result.get('messages', 'Unknown')}")
+                        self.logger.verbose(f"  {STATUS_WARNING} Parent asset not assigned to a user - skipping checkout")
+                        self.logger.verbose(f"  {STATUS_INFO} Note: Monitor will remain unassigned until parent is assigned to a user")
+                        
                 except Exception as e:
                     self.logger.verbose(f"  {STATUS_WARNING} Checkout failed: {e}")
             
@@ -279,7 +325,9 @@ class MonitorManager:
                 'model_id': model_id,
                 'action': action,
                 'parent_hostname': parent_hostname,
-                'checked_out_to': parent_asset_id
+                'parent_asset_id': parent_asset_id,
+                'checked_out_to_user': assigned_user_id,
+                'checked_out_to_user_name': assigned_user_name
             }
             
         except APIError as e:

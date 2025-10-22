@@ -18,7 +18,7 @@ Automated asset management agent for Snipe-IT. Automatically collects laptop/des
   - Automatically detects external monitors
   - Filters out internal laptop displays
   - Captures resolution, refresh rate, connection type
-  - Automatically checks out monitors to parent laptop
+  - Automatically checks out monitors to the assigned user
 
 - **Smart Synchronization**
   - Finds or creates manufacturers and models
@@ -98,7 +98,7 @@ The agent will:
 3. Find or create manufacturers/models
 4. Update or create laptop asset
 5. Update or create monitor assets
-6. Check out monitors to laptop
+6. Check out monitors to the assigned user (with device connection tracking)
 7. Display summary
 
 ## Configuration
@@ -215,8 +215,10 @@ python build.py --url https://your-snipeit-server.com --api-key YOUR_API_KEY_HER
 
 4. **Monitor Checkout**
    - After creating/updating monitor
-   - Automatically checks out to parent laptop
-   - Creates asset hierarchy
+   - Automatically checks out to the same user as the parent laptop/desktop
+   - Adds note tracking which device it's connected to
+   - Ensures monitors appear in user asset queries
+   - Follows Snipe-IT best practices for accountability
 
 ## Project Structure
 

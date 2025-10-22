@@ -222,6 +222,29 @@ class SnipeITClient:
         response = self._request('POST', f'/hardware/{asset_id}/checkout', json=payload)
         return response.json()
     
+    def checkin_hardware(self, asset_id: int, status_id: Optional[int] = None, 
+                        note: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Check in hardware asset
+        
+        Args:
+            asset_id: Asset ID to check in
+            status_id: Optional status ID for the checkin
+            note: Optional checkin note
+            
+        Returns:
+            API response dictionary
+        """
+        payload = {}
+        
+        if status_id:
+            payload['status_id'] = status_id
+        if note:
+            payload['note'] = note
+        
+        response = self._request('POST', f'/hardware/{asset_id}/checkin', json=payload)
+        return response.json()
+    
     # ==================== MANUFACTURERS ====================
     
     def get_manufacturers(self, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

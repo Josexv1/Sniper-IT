@@ -399,8 +399,9 @@ class SyncManager:
                 console.print(f"    Asset ID:     {result.get('asset_id', 'N/A')}")
                 console.print(f"    Name:         {result.get('name', 'N/A')}")
                 console.print(f"    Action:       {result.get('action', 'N/A').upper()}")
-                if result.get('checked_out_to'):
-                    console.print(f"    Checked Out:  Yes (to Asset #{result.get('checked_out_to')})")
+                if result.get('checked_out_to_user'):
+                    user_name = result.get('checked_out_to_user_name', f"User #{result.get('checked_out_to_user')}")
+                    console.print(f"    Checked Out:  Yes (to {user_name})")
                 else:
                     console.print(f"    Checked Out:  No")
         
