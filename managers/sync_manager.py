@@ -404,7 +404,14 @@ class SyncManager:
                 console.print(f"  Monitor {i}:")
                 console.print(f"    Asset ID:     {result.get('asset_id', 'N/A')}")
                 console.print(f"    Name:         {result.get('name', 'N/A')}")
-                console.print(f"    Action:       {result.get('action', 'N/A').upper()}")
+                
+                # Handle action display
+                action = result.get('action', 'N/A')
+                if action == 'no_change':
+                    console.print(f"    Action:       NO CHANGES (already up to date)")
+                else:
+                    console.print(f"    Action:       {action.upper()}")
+                
                 if result.get('checked_out_to_user'):
                     user_name = result.get('checked_out_to_user_name', f"User #{result.get('checked_out_to_user')}")
                     console.print(f"    Checked Out:  Yes (to {user_name})")

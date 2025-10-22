@@ -94,10 +94,27 @@ def main():
     # Setup log file if requested or if auto-log is enabled
     log_file = None
     if args.log_to_file or auto_log_enabled:
+        import tempfile
+        import os
+        
         hostname = socket.gethostname()
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        log_file = f"{hostname}_{timestamp}.txt"
-        print_info(f"Logging to file: {log_file}")
+        log_filename = f"{hostname}_{timestamp}.txt"
+        
+        # Try current directory first
+        log_file = log_filename
+        try:
+            # Test if we can write to current directory
+            test_path = Path(log_file)
+            test_path.touch()
+            test_path.unlink()
+            print_info(f"Logging to file: {log_file}")
+        except (PermissionError, OSError):
+            # Fall back to temp directory if current dir is not writable
+            temp_dir = tempfile.gettempdir()
+            log_file = os.path.join(temp_dir, log_filename)
+            print_info(f"Logging to file: {log_file}")
+            print_info(f"(Using temp directory - current directory not writable)")
     
     # Initialize logger
     init_logger(verbosity=verbosity, log_file=log_file)

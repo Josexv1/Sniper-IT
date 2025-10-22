@@ -217,7 +217,7 @@ class MonitorManager:
             if existing_asset_id:
                 self.logger.verbose(f"  {STATUS_OK} Found existing monitor ID: {existing_asset_id}")
                 
-                # Get existing data to preserve asset_tag
+                # Get existing data to preserve asset_tag and detect changes
                 existing_data = self.api.get_hardware_by_id(existing_asset_id)
                 existing_tag = existing_data.get('asset_tag', '')
                 
@@ -228,24 +228,32 @@ class MonitorManager:
                     payload['asset_tag'] = payload['serial']
                     self.logger.verbose(f"  {STATUS_INFO} Using serial as asset tag: {payload['serial']}")
                 
-                self.logger.verbose(f"  {STATUS_INFO} Updating monitor...")
-                result = self.api.update_hardware(existing_asset_id, payload)
+                # Check if update is needed
+                has_changes = self._detect_monitor_changes(existing_data, payload, model_id)
                 
-                if result.get('status') == 'success':
-                    self.logger.verbose(f"  {STATUS_OK} Monitor updated successfully")
+                if not has_changes:
+                    self.logger.verbose(f"  {STATUS_OK} No changes detected - monitor is already up to date")
                     asset_id = existing_asset_id
-                    action = 'updated'
-                    
-                    # Verify asset tag was preserved
-                    updated_data = self.api.get_hardware_by_id(asset_id)
-                    updated_tag = updated_data.get('asset_tag', '')
-                    if updated_tag and updated_tag != existing_tag:
-                        self.logger.verbose(f"  {STATUS_WARNING} Asset tag changed: {existing_tag} -> {updated_tag}")
-                    elif updated_tag:
-                        self.logger.verbose(f"  {STATUS_OK} Asset tag verified: {updated_tag}")
+                    action = 'no_change'
                 else:
-                    print_error(f"Update failed: {result.get('messages', 'Unknown error')}")
-                    return None
+                    self.logger.verbose(f"  {STATUS_INFO} Changes detected - updating monitor...")
+                    result = self.api.update_hardware(existing_asset_id, payload)
+                    
+                    if result.get('status') == 'success':
+                        self.logger.verbose(f"  {STATUS_OK} Monitor updated successfully")
+                        asset_id = existing_asset_id
+                        action = 'updated'
+                        
+                        # Verify asset tag was preserved
+                        updated_data = self.api.get_hardware_by_id(asset_id)
+                        updated_tag = updated_data.get('asset_tag', '')
+                        if updated_tag and updated_tag != existing_tag:
+                            self.logger.verbose(f"  {STATUS_WARNING} Asset tag changed: {existing_tag} -> {updated_tag}")
+                        elif updated_tag:
+                            self.logger.verbose(f"  {STATUS_OK} Asset tag verified: {updated_tag}")
+                    else:
+                        print_error(f"Update failed: {result.get('messages', 'Unknown error')}")
+                        return None
             else:
                 self.logger.verbose(f"  {STATUS_INFO} Creating new monitor...")
                 payload['asset_tag'] = payload['serial']
@@ -276,38 +284,51 @@ class MonitorManager:
                         assigned_user_id = assigned_to.get('id')
                         assigned_user_name = assigned_to.get('name', 'Unknown User')
                         
-                        # Check if monitor is already checked out - if so, check it in first
+                        # Check if monitor is already checked out to the correct user
                         monitor_data = self.api.get_hardware_by_id(asset_id)
-                        if monitor_data.get('assigned_to'):
-                            self.logger.verbose(f"  {STATUS_INFO} Monitor is currently checked out - checking in first...")
-                            checkin_result = self.api.checkin_hardware(
+                        monitor_assigned_to = monitor_data.get('assigned_to')
+                        
+                        # Check if already assigned to the same user
+                        already_correct = False
+                        if monitor_assigned_to and monitor_assigned_to.get('type') == 'user':
+                            current_user_id = monitor_assigned_to.get('id')
+                            if current_user_id == assigned_user_id:
+                                already_correct = True
+                                self.logger.verbose(f"  {STATUS_INFO} Monitor already checked out to correct user: {assigned_user_name}")
+                        
+                        # Only perform checkout if not already correct
+                        if not already_correct:
+                            # Check in first if currently checked out to someone else
+                            if monitor_assigned_to:
+                                self.logger.verbose(f"  {STATUS_INFO} Monitor checked out to different user - checking in first...")
+                                checkin_result = self.api.checkin_hardware(
+                                    asset_id=asset_id,
+                                    note="Auto-checkin before reassignment"
+                                )
+                                if checkin_result.get('status') == 'success':
+                                    self.logger.verbose(f"  {STATUS_OK} Monitor checked in successfully")
+                                else:
+                                    self.logger.verbose(f"  {STATUS_WARNING} Checkin warning: {checkin_result.get('messages', 'Unknown')}")
+                            
+                            self.logger.verbose(f"  {STATUS_INFO} Checking out monitor to user: {assigned_user_name}...")
+                            
+                            # Create note with device connection info
+                            checkout_note = f"Connected to {parent_hostname} (Asset #{parent_asset_id})"
+                            
+                            checkout_result = self.api.checkout_hardware(
                                 asset_id=asset_id,
-                                note="Auto-checkin before reassignment"
+                                checkout_to_type='user',
+                                assigned_id=assigned_user_id,
+                                status_id=self.defaults.get('status_id', 2),
+                                note=checkout_note
                             )
-                            if checkin_result.get('status') == 'success':
-                                self.logger.verbose(f"  {STATUS_OK} Monitor checked in successfully")
+                            
+                            if checkout_result.get('status') == 'success':
+                                self.logger.verbose(f"  {STATUS_OK} Monitor checked out to user: {assigned_user_name}")
+                                self.logger.verbose(f"  {STATUS_INFO} Checkout note added: '{checkout_note}'")
+                                self.logger.verbose(f"  {STATUS_INFO} (View in Snipe-IT History tab for this asset)")
                             else:
-                                self.logger.verbose(f"  {STATUS_WARNING} Checkin warning: {checkin_result.get('messages', 'Unknown')}")
-                        
-                        self.logger.verbose(f"  {STATUS_INFO} Checking out monitor to user: {assigned_user_name}...")
-                        
-                        # Create note with device connection info
-                        checkout_note = f"Connected to {parent_hostname} (Asset #{parent_asset_id})"
-                        
-                        checkout_result = self.api.checkout_hardware(
-                            asset_id=asset_id,
-                            checkout_to_type='user',
-                            assigned_id=assigned_user_id,
-                            status_id=self.defaults.get('status_id', 2),
-                            note=checkout_note
-                        )
-                        
-                        if checkout_result.get('status') == 'success':
-                            self.logger.verbose(f"  {STATUS_OK} Monitor checked out to user: {assigned_user_name}")
-                            self.logger.verbose(f"  {STATUS_INFO} Checkout note added: '{checkout_note}'")
-                            self.logger.verbose(f"  {STATUS_INFO} (View in Snipe-IT History tab for this asset)")
-                        else:
-                            self.logger.verbose(f"  {STATUS_WARNING} Checkout warning: {checkout_result.get('messages', 'Unknown')}")
+                                self.logger.verbose(f"  {STATUS_WARNING} Checkout warning: {checkout_result.get('messages', 'Unknown')}")
                     else:
                         self.logger.verbose(f"  {STATUS_WARNING} Parent asset not assigned to a user - skipping checkout")
                         self.logger.verbose(f"  {STATUS_INFO} Note: Monitor will remain unassigned until parent is assigned to a user")
@@ -336,3 +357,44 @@ class MonitorManager:
         except Exception as e:
             print_error(f"Unexpected error: {e}")
             return None
+    
+    def _detect_monitor_changes(self, existing_data: Dict[str, Any], new_payload: Dict[str, Any], new_model_id: int) -> bool:
+        """
+        Detect if monitor data has changed
+        
+        Args:
+            existing_data: Existing monitor data from Snipe-IT
+            new_payload: New payload to be sent
+            new_model_id: New model ID
+            
+        Returns:
+            True if changes detected, False if monitor is already up to date
+        """
+        # Check model change
+        existing_model_id = existing_data.get('model', {}).get('id')
+        if existing_model_id and existing_model_id != new_model_id:
+            return True
+        
+        # Check serial change
+        existing_serial = existing_data.get('serial', '')
+        new_serial = new_payload.get('serial', '')
+        if existing_serial != new_serial:
+            return True
+        
+        # Check custom fields changes
+        existing_custom_fields = existing_data.get('custom_fields', {})
+        
+        for field_key, field_value in new_payload.items():
+            if field_key.startswith('_snipeit_'):
+                # Find matching field in existing data
+                existing_value = None
+                for cf_key, cf_data in existing_custom_fields.items():
+                    if cf_data.get('field') == field_key:
+                        existing_value = cf_data.get('value', '')
+                        break
+                
+                # Compare values (normalize to strings)
+                if str(existing_value or '') != str(field_value or ''):
+                    return True
+        
+        return False

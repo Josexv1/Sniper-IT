@@ -1,6 +1,6 @@
 # Sniper-IT Agent
 
-**Version 2.2.4**
+**Version 2.2.7**
 
 Automated asset management agent for Snipe-IT. Automatically collects laptop/desktop and monitor information, then synchronizes it to your Snipe-IT server.
 
@@ -14,11 +14,13 @@ Automated asset management agent for Snipe-IT. Automatically collects laptop/des
   - BIOS information
   - Agent version tracking
 
-- **Monitor Detection**
+- **Monitor Detection & Management**
   - Automatically detects external monitors
   - Filters out internal laptop displays
   - Captures resolution, refresh rate, connection type
-  - Automatically checks out monitors to the assigned user
+  - Smart monitor checkout to assigned user
+  - Optimized checkout: Only updates when assignment changes
+  - Prevents unnecessary checkin/checkout cycles
 
 - **Smart Synchronization**
   - Finds or creates manufacturers and models
@@ -138,6 +140,16 @@ This creates:
 - Requires `config.yaml` next to the EXE at runtime
 - No Python installation required on target machines
 
+### Build Flags Reference
+
+| Flag | Description | Use Case |
+|------|-------------|----------|
+| `--url <URL>` | Hardcode Snipe-IT server URL into executable | Production deployment |
+| `--api-key <KEY>` | Hardcode API key into executable | Production deployment |
+| `--ignore-ssl` | Disable SSL certificate verification | Self-signed certificates |
+| `--auto-log` | Enable automatic log file generation | Troubleshooting/audit trail |
+| `--clean` | Clean build artifacts without building | Maintenance |
+
 ### Build with Hardcoded Credentials (for shared folder deployment)
 
 For simplified deployment where users just run the EXE:
@@ -220,12 +232,15 @@ python build.py --url https://your-snipeit-server.com --api-key YOUR_API_KEY_HER
    - Preserves asset tags
    - Maps custom fields
 
-4. **Monitor Checkout**
+4. **Monitor Checkout (Smart Assignment)**
    - After creating/updating monitor
+   - Checks if monitor already assigned to correct user
+   - Only performs checkout if assignment needs to change
    - Automatically checks out to the same user as the parent laptop/desktop
    - Adds note tracking which device it's connected to
    - Ensures monitors appear in user asset queries
    - Follows Snipe-IT best practices for accountability
+   - Prevents unnecessary checkin/checkout cycles in activity log
 
 ## Project Structure
 
@@ -349,7 +364,41 @@ Sniper-IT/
 - Use `--issl` flag to ignore SSL verification
 - Or add valid SSL certificate to Snipe-IT server
 
+### "Permission denied" when creating log file
+- Agent automatically falls back to temp directory if current directory is not writable
+- Logs will be created in system temp folder (e.g., `C:\Users\Username\AppData\Local\Temp\`)
+- This is normal when running from read-only shared folders
+- Message will indicate: "(Using temp directory - current directory not writable)"
+
+### "The name must be unique across models" error
+- Agent now handles this automatically by searching for existing model
+- If model exists under different manufacturer, will use existing model ID
+- This can happen if monitor manufacturer names vary slightly between runs
+- No action needed - error is now handled gracefully
+
 ## Version History
+
+### 2.2.7 (2025-10-22)
+- **Smart change detection**: Assets only updated when meaningful changes are detected
+- **Ignore volatile data**: Disk space and RAM usage changes no longer trigger unnecessary updates
+- **Clean status display**: Shows "NO CHANGES (already up to date)" when asset is current
+- **Reduced API calls**: Skips update requests when no changes detected
+- **Monitor change detection**: Monitors also skip updates when already up to date
+- **Better efficiency**: Minimizes unnecessary writes to Snipe-IT database
+
+### 2.2.6 (2025-10-22)
+- **Smart log file location**: Auto-log now falls back to temp directory if current directory is not writable
+- **Improved model detection**: Better handling of duplicate model errors - searches more thoroughly before failing
+- **Permission handling**: Graceful degradation when running from shared folders without write access
+- **Error recovery**: When model creation fails due to duplicates, searches all models ignoring manufacturer mismatch
+- **Better UX**: Clear messaging about log file location changes
+
+### 2.2.5 (2025-10-22)
+- **Monitor checkout optimization**: Fixed unnecessary checkin/checkout cycles in activity log
+- **Smart assignment check**: Monitor only checked in/out if assignment needs to change
+- **Reduced API calls**: Skips checkout when monitor already assigned to correct user
+- **Cleaner audit trail**: Eliminates repeated "Auto-checkin before reassignment" entries
+- **Performance improvement**: Faster sync with fewer redundant operations
 
 ### 2.2.4 (2025-10-22)
 - **Build-time auto-logging**: New `--auto-log` flag for build.py enables automatic log generation

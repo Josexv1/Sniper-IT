@@ -398,6 +398,17 @@ class SnipeITClient:
         if result.get('status') == 'success':
             return result['payload']['id']
         else:
+            # Check if failure was due to duplicate - try to find it again more broadly
+            error_msg = str(result.get('messages', '')).lower()
+            if 'unique' in error_msg or 'duplicate' in error_msg:
+                # Model exists but we couldn't find it - search more broadly
+                # Try searching all models with this name, ignoring manufacturer
+                models = self.search_models(name)
+                for model in models:
+                    if model.get('name', '').lower() == name.lower():
+                        # Found it! Return this ID even if manufacturer doesn't match
+                        return model['id']
+            
             raise APIError(f"Failed to create model: {result.get('messages', 'Unknown error')}")
     
     # ==================== CATEGORIES ====================

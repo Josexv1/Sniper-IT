@@ -507,8 +507,15 @@ class AssetManager:
         existing_custom_fields = existing_data.get('custom_fields', {})
         custom_field_changes = 0
         
+        # Fields to ignore in change detection (volatile data that changes frequently)
+        ignored_fields = ['disk_space_used', 'ram_usage']
+        
         for field_key, field_value in new_payload.items():
             if field_key.startswith('_snipeit_'):
+                # Skip ignored fields (disk space, RAM usage, etc.)
+                if any(ignored in field_key for ignored in ignored_fields):
+                    continue
+                
                 # This is a custom field
                 field_name = field_key.replace('_snipeit_', '').replace('_', ' ').title()
                 
