@@ -3,11 +3,13 @@ Sniper-IT Agent - Asset Manager
 Handles laptop/desktop asset operations in Snipe-IT
 """
 
+import re
 from typing import Dict, Any, Optional
 from core.api_client import SnipeITClient
 from cli.formatters import print_info, print_error, print_warning, console
 from core.constants import STATUS_OK, STATUS_ERROR, STATUS_WARNING, STATUS_INFO
 from utils.exceptions import APIError
+from utils.logger import get_logger
 
 
 class AssetManager:
@@ -29,6 +31,7 @@ class AssetManager:
         self.api = api_client
         self.config = config
         self.defaults = config.get('defaults', {})
+        self.logger = get_logger()
         
     def _map_custom_fields_to_payload(self, custom_fields: Dict[str, str]) -> Dict[str, str]:
         """
@@ -76,9 +79,9 @@ class AssetManager:
         Returns:
             Dictionary with processing results or None if failed
         """
-        console.print()
-        print_info("Processing laptop/desktop asset...")
-        console.print("=" * 70)
+        self.logger.verbose("")
+        self.logger.verbose(f"{STATUS_INFO} Processing laptop/desktop asset...")
+        self.logger.verbose("=" * 70)
         
         try:
             # Extract data
@@ -90,19 +93,19 @@ class AssetManager:
             model = asset_data.get('model', 'Unknown')
             serial = asset_data.get('serial_number', 'Unknown')
             
-            console.print(f"{STATUS_INFO} Hostname: {hostname}")
-            console.print(f"{STATUS_INFO} Manufacturer: {manufacturer}")
-            console.print(f"{STATUS_INFO} Model: {model}")
-            console.print(f"{STATUS_INFO} Serial: {serial}")
-            console.print()
+            self.logger.verbose(f"{STATUS_INFO} Hostname: {hostname}")
+            self.logger.verbose(f"{STATUS_INFO} Manufacturer: {manufacturer}")
+            self.logger.verbose(f"{STATUS_INFO} Model: {model}")
+            self.logger.verbose(f"{STATUS_INFO} Serial: {serial}")
+            self.logger.verbose("")
             
             # Step 1: Find or create manufacturer
-            console.print(f"{STATUS_INFO} Processing manufacturer: {manufacturer}")
+            self.logger.verbose(f"{STATUS_INFO} Processing manufacturer: {manufacturer}")
             manufacturer_id = self.api.find_or_create_manufacturer(manufacturer)
-            console.print(f"{STATUS_OK} Manufacturer ID: {manufacturer_id}")
+            self.logger.verbose(f"{STATUS_OK} Manufacturer ID: {manufacturer_id}")
             
             # Step 2: Find or create model
-            console.print(f"{STATUS_INFO} Processing model: {model}")
+            self.logger.verbose(f"{STATUS_INFO} Processing model: {model}")
             model_id = self.api.find_or_create_model(
                 name=model,
                 model_number=model,  # Use model name as model number
@@ -110,10 +113,10 @@ class AssetManager:
                 category_id=self.defaults.get('laptop_category_id', 2),
                 fieldset_id=self.defaults.get('laptop_fieldset_id', 1)
             )
-            console.print(f"{STATUS_OK} Model ID: {model_id}")
+            self.logger.verbose(f"{STATUS_OK} Model ID: {model_id}")
             
             # Step 3: Check if asset exists by hostname
-            console.print(f"{STATUS_INFO} Searching for existing asset: {hostname}")
+            self.logger.verbose(f"{STATUS_INFO} Searching for existing asset: {hostname}")
             existing_asset_id = self.api.find_hardware_by_hostname(hostname)
             
             # Step 4: Prepare payload
@@ -131,7 +134,7 @@ class AssetManager:
             
             # Step 5: Create or update asset
             if existing_asset_id:
-                console.print(f"{STATUS_OK} Found existing asset ID: {existing_asset_id}")
+                self.logger.verbose(f"{STATUS_OK} Found existing asset ID: {existing_asset_id}")
                 
                 # Get existing data to preserve asset_tag
                 existing_data = self.api.get_hardware_by_id(existing_asset_id)
@@ -139,40 +142,43 @@ class AssetManager:
                 
                 if existing_tag:
                     payload['asset_tag'] = existing_tag
-                    console.print(f"{STATUS_INFO} Preserving asset tag: {existing_tag}")
+                    self.logger.verbose(f"{STATUS_INFO} Preserving asset tag: {existing_tag}")
                 else:
-                    payload['asset_tag'] = serial
+                    # Generate new asset tag
+                    payload['asset_tag'] = self._generate_asset_tag(hostname)
                 
-                console.print(f"{STATUS_INFO} Updating asset...")
+                self.logger.verbose(f"{STATUS_INFO} Updating asset...")
                 result = self.api.update_hardware(existing_asset_id, payload)
                 
                 if result.get('status') == 'success':
-                    console.print(f"{STATUS_OK} Asset updated successfully")
+                    self.logger.verbose(f"{STATUS_OK} Asset updated successfully")
                     asset_id = existing_asset_id
                 else:
-                    console.print(f"{STATUS_ERROR} Update failed: {result.get('messages', 'Unknown error')}")
+                    print_error(f"Update failed: {result.get('messages', 'Unknown error')}")
                     return None
             else:
-                console.print(f"{STATUS_INFO} No existing asset found - creating new")
-                payload['asset_tag'] = serial
+                self.logger.verbose(f"{STATUS_INFO} No existing asset found - creating new")
+                # Generate asset tag based on naming convention
+                payload['asset_tag'] = self._generate_asset_tag(hostname)
+                self.logger.verbose(f"{STATUS_INFO} Generated asset tag: {payload['asset_tag']}")
                 
                 result = self.api.create_hardware(payload)
                 
                 if result.get('status') == 'success':
                     asset_id = result['payload']['id']
-                    console.print(f"{STATUS_OK} Asset created successfully (ID: {asset_id})")
+                    self.logger.verbose(f"{STATUS_OK} Asset created successfully (ID: {asset_id})")
                 else:
-                    console.print(f"{STATUS_ERROR} Creation failed: {result.get('messages', 'Unknown error')}")
+                    print_error(f"Creation failed: {result.get('messages', 'Unknown error')}")
                     return None
             
             # Step 6: Verify the asset
-            console.print(f"{STATUS_INFO} Verifying asset data...")
+            self.logger.verbose(f"{STATUS_INFO} Verifying asset data...")
             verification = self._verify_asset(asset_id)
             
-            console.print()
-            console.print("=" * 70)
-            console.print(f"{STATUS_OK} Laptop/Desktop asset processing completed")
-            console.print()
+            self.logger.verbose("")
+            self.logger.verbose("=" * 70)
+            self.logger.verbose(f"{STATUS_OK} Laptop/Desktop asset processing completed")
+            self.logger.verbose("")
             
             return {
                 'asset_id': asset_id,
@@ -184,10 +190,10 @@ class AssetManager:
             }
             
         except APIError as e:
-            console.print(f"{STATUS_ERROR} API error: {e}")
+            print_error(f"API error: {e}")
             return None
         except Exception as e:
-            console.print(f"{STATUS_ERROR} Unexpected error: {e}")
+            print_error(f"Unexpected error: {e}")
             return None
     
     def _verify_asset(self, asset_id: int) -> Dict[str, Any]:
@@ -216,7 +222,7 @@ class AssetManager:
             
             success_rate = (populated_count / total_count * 100) if total_count > 0 else 0
             
-            console.print(f"{STATUS_INFO} Custom fields: {populated_count}/{total_count} populated ({success_rate:.1f}%)")
+            self.logger.verbose(f"{STATUS_INFO} Custom fields: {populated_count}/{total_count} populated ({success_rate:.1f}%)")
             
             return {
                 'asset_id': asset_id,
@@ -227,8 +233,111 @@ class AssetManager:
             }
             
         except Exception as e:
-            console.print(f"{STATUS_WARNING} Verification warning: {e}")
+            self.logger.verbose(f"{STATUS_WARNING} Verification warning: {e}")
             return {
                 'asset_id': asset_id,
                 'error': str(e)
             }
+    
+    def _generate_asset_tag(self, hostname: str) -> str:
+        """
+        Generate asset tag based on naming convention or use hostname
+        
+        Args:
+            hostname: Computer hostname to use as fallback
+            
+        Returns:
+            Generated asset tag string
+        """
+        naming_convention = self.defaults.get('naming_convention', '').strip()
+        
+        # If no naming convention, use hostname
+        if not naming_convention:
+            return hostname
+        
+        # Find the last asset with this naming pattern
+        try:
+            last_tag = self._find_last_asset_tag(naming_convention)
+            
+            if last_tag:
+                # Extract number and increment
+                next_number = self._extract_and_increment_number(last_tag, naming_convention)
+                new_tag = naming_convention.replace('N', str(next_number).zfill(len(str(next_number))))
+                return new_tag
+            else:
+                # No existing assets found - start with 0001
+                new_tag = naming_convention.replace('N', '0001')
+                return new_tag
+                
+        except Exception as e:
+            self.logger.verbose(f"{STATUS_WARNING} Asset tag generation failed: {e}")
+            self.logger.verbose(f"{STATUS_INFO} Falling back to hostname")
+            return hostname
+    
+    def _find_last_asset_tag(self, pattern: str) -> Optional[str]:
+        """
+        Find the last asset tag matching the naming pattern
+        
+        Args:
+            pattern: Naming pattern with 'N' placeholder (e.g., 'MIS-2026-N')
+            
+        Returns:
+            Last matching asset tag or None if not found
+        """
+        # Convert pattern to search query (replace N with wildcard)
+        # For pattern "MIS-2026-N" we search for "MIS-2026"
+        search_prefix = pattern.split('N')[0]
+        
+        # Search for assets with this prefix
+        # Note: Snipe-IT search is limited, so we fetch laptops and filter
+        search_results = self.api.search_hardware(search_prefix, limit=500)
+        
+        matching_tags = []
+        
+        # Create regex pattern to match the naming convention
+        # Replace 'N' with digit pattern
+        regex_pattern = re.escape(pattern).replace('N', r'(\d+)')
+        
+        for asset in search_results:
+            asset_tag = asset.get('asset_tag', '')
+            if re.fullmatch(regex_pattern, asset_tag):
+                matching_tags.append(asset_tag)
+        
+        if not matching_tags:
+            return None
+        
+        # Sort by the numeric part and return the last one
+        matching_tags.sort(key=lambda tag: self._extract_number_from_tag(tag, pattern))
+        return matching_tags[-1]
+    
+    def _extract_number_from_tag(self, tag: str, pattern: str) -> int:
+        """
+        Extract the numeric part from an asset tag
+        
+        Args:
+            tag: Asset tag (e.g., 'MIS-2026-0027')
+            pattern: Pattern with 'N' (e.g., 'MIS-2026-N')
+            
+        Returns:
+            Extracted number as integer
+        """
+        regex_pattern = re.escape(pattern).replace('N', r'(\d+)')
+        match = re.fullmatch(regex_pattern, tag)
+        
+        if match:
+            return int(match.group(1))
+        return 0
+    
+    def _extract_and_increment_number(self, last_tag: str, pattern: str) -> int:
+        """
+        Extract number from last tag and increment by 1
+        
+        Args:
+            last_tag: Last asset tag found (e.g., 'MIS-2026-0026')
+            pattern: Pattern with 'N' (e.g., 'MIS-2026-N')
+            
+        Returns:
+            Incremented number
+        """
+        current_number = self._extract_number_from_tag(last_tag, pattern)
+        return current_number + 1

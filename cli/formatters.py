@@ -4,10 +4,13 @@ Beautiful terminal output using rich library
 """
 
 from typing import List, Dict, Any, Optional
+from contextlib import contextmanager
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
+from rich.spinner import Spinner
+from rich.live import Live
 from core.constants import STATUS_OK, STATUS_ERROR, STATUS_WARNING, STATUS_INFO, STATUS_QUESTION
 
 
@@ -294,3 +297,21 @@ def print_error_summary(message: str) -> None:
         message: Error message
     """
     display_panel(f"[red]{message}[/red]", title="Error", border_style="red")
+
+
+@contextmanager
+def spinner(text: str = "Loading...", spinner_style: str = "dots"):
+    """
+    Context manager for displaying a spinner during operations
+    
+    Args:
+        text: Text to display next to spinner
+        spinner_style: Spinner style (dots, line, arc, etc.)
+        
+    Usage:
+        with spinner("Collecting data..."):
+            # Do work here
+            pass
+    """
+    with Live(Spinner(spinner_style, text=text, style="cyan"), console=console, refresh_per_second=10):
+        yield

@@ -8,6 +8,7 @@ from core.api_client import SnipeITClient
 from cli.formatters import print_info, print_error, print_warning, console
 from core.constants import STATUS_OK, STATUS_ERROR, STATUS_WARNING, STATUS_INFO
 from utils.exceptions import APIError
+from utils.logger import get_logger
 
 
 class MonitorManager:
@@ -29,6 +30,7 @@ class MonitorManager:
         self.api = api_client
         self.config = config
         self.defaults = config.get('defaults', {})
+        self.logger = get_logger()
         
     def _map_monitor_fields_to_payload(self, monitor_data: Dict[str, Any]) -> Dict[str, str]:
         """
@@ -70,20 +72,25 @@ class MonitorManager:
         
         Args:
             monitor_data: Monitor data dictionary
-            index: Monitor index (for multiple monitors)
+            index: Monitor index (unused - kept for compatibility)
             
         Returns:
             Monitor name string
         """
         manufacturer = monitor_data.get('manufacturer', 'Unknown')
         model = monitor_data.get('model', 'Monitor')
-        connected_to = monitor_data.get('connected_to_laptop', 'Unknown')
         
-        # Format: "Manufacturer Model - Connected to HOSTNAME"
-        if index > 1:
-            return f"{manufacturer} {model} #{index} - Connected to {connected_to}"
+        # Check if model already contains manufacturer name
+        # If so, just use the model to avoid duplication (e.g., "HP M24fe FHD" not "HP HP M24fe FHD")
+        model_lower = model.lower()
+        manufacturer_lower = manufacturer.lower()
+        
+        if manufacturer_lower in model_lower:
+            # Model already contains manufacturer, just use model
+            return model
         else:
-            return f"{manufacturer} {model} - Connected to {connected_to}"
+            # Model doesn't contain manufacturer, prepend it
+            return f"{manufacturer} {model}"
     
     def process_monitors(self, monitors: List[Dict[str, Any]], 
                         parent_hostname: str,
@@ -100,30 +107,30 @@ class MonitorManager:
             List of processing results or None if failed
         """
         if not monitors:
-            console.print(f"{STATUS_INFO} No external monitors detected")
+            self.logger.verbose(f"{STATUS_INFO} No external monitors detected")
             return []
         
-        console.print()
-        print_info(f"Processing {len(monitors)} monitor(s)...")
-        console.print("=" * 70)
+        self.logger.verbose("")
+        self.logger.verbose(f"{STATUS_INFO} Processing {len(monitors)} monitor(s)...")
+        self.logger.verbose("=" * 70)
         
         results = []
         
         for i, monitor_data in enumerate(monitors, start=1):
-            console.print(f"\n{STATUS_INFO} Processing Monitor {i}/{len(monitors)}")
-            console.print("-" * 70)
+            self.logger.verbose(f"\n{STATUS_INFO} Processing Monitor {i}/{len(monitors)}")
+            self.logger.verbose("-" * 70)
             
             result = self._process_single_monitor(monitor_data, i, parent_hostname, parent_asset_id)
             
             if result:
                 results.append(result)
             else:
-                console.print(f"{STATUS_WARNING} Monitor {i} processing had issues")
+                self.logger.verbose(f"{STATUS_WARNING} Monitor {i} processing had issues")
         
-        console.print()
-        console.print("=" * 70)
-        console.print(f"{STATUS_OK} Monitor processing completed: {len(results)}/{len(monitors)} successful")
-        console.print()
+        self.logger.verbose("")
+        self.logger.verbose("=" * 70)
+        self.logger.verbose(f"{STATUS_OK} Monitor processing completed: {len(results)}/{len(monitors)} successful")
+        self.logger.verbose("")
         
         return results
     
@@ -149,21 +156,21 @@ class MonitorManager:
             serial = monitor_data.get('serial_number', '')
             resolution = monitor_data.get('resolution', 'N/A')
             
-            console.print(f"  Manufacturer: {manufacturer}")
-            console.print(f"  Model: {model}")
-            console.print(f"  Serial: {serial if serial else '(empty)'}")
-            console.print(f"  Resolution: {resolution}")
+            self.logger.verbose(f"  Manufacturer: {manufacturer}")
+            self.logger.verbose(f"  Model: {model}")
+            self.logger.verbose(f"  Serial: {serial if serial else '(empty)'}")
+            self.logger.verbose(f"  Resolution: {resolution}")
             
             # Generate monitor name
             monitor_name = self._generate_monitor_name(monitor_data, index)
             
             # Step 1: Find or create manufacturer
-            console.print(f"  {STATUS_INFO} Processing manufacturer...")
+            self.logger.verbose(f"  {STATUS_INFO} Processing manufacturer...")
             manufacturer_id = self.api.find_or_create_manufacturer(manufacturer)
-            console.print(f"  {STATUS_OK} Manufacturer ID: {manufacturer_id}")
+            self.logger.verbose(f"  {STATUS_OK} Manufacturer ID: {manufacturer_id}")
             
             # Step 2: Find or create model
-            console.print(f"  {STATUS_INFO} Processing model...")
+            self.logger.verbose(f"  {STATUS_INFO} Processing model...")
             model_id = self.api.find_or_create_model(
                 name=model,
                 model_number=model,
@@ -171,7 +178,7 @@ class MonitorManager:
                 category_id=self.defaults.get('monitor_category_id', 5),
                 fieldset_id=self.defaults.get('monitor_fieldset_id', 2)
             )
-            console.print(f"  {STATUS_OK} Model ID: {model_id}")
+            self.logger.verbose(f"  {STATUS_OK} Model ID: {model_id}")
             
             # Step 3: Search for existing monitor
             # Search by serial if available, otherwise by name
@@ -208,7 +215,7 @@ class MonitorManager:
             
             # Step 5: Create or update asset
             if existing_asset_id:
-                console.print(f"  {STATUS_OK} Found existing monitor ID: {existing_asset_id}")
+                self.logger.verbose(f"  {STATUS_OK} Found existing monitor ID: {existing_asset_id}")
                 
                 # Get existing data to preserve asset_tag
                 existing_data = self.api.get_hardware_by_id(existing_asset_id)
@@ -219,33 +226,33 @@ class MonitorManager:
                 else:
                     payload['asset_tag'] = payload['serial']
                 
-                console.print(f"  {STATUS_INFO} Updating monitor...")
+                self.logger.verbose(f"  {STATUS_INFO} Updating monitor...")
                 result = self.api.update_hardware(existing_asset_id, payload)
                 
                 if result.get('status') == 'success':
-                    console.print(f"  {STATUS_OK} Monitor updated successfully")
+                    self.logger.verbose(f"  {STATUS_OK} Monitor updated successfully")
                     asset_id = existing_asset_id
                     action = 'updated'
                 else:
-                    console.print(f"  {STATUS_ERROR} Update failed: {result.get('messages', 'Unknown error')}")
+                    print_error(f"Update failed: {result.get('messages', 'Unknown error')}")
                     return None
             else:
-                console.print(f"  {STATUS_INFO} Creating new monitor...")
+                self.logger.verbose(f"  {STATUS_INFO} Creating new monitor...")
                 payload['asset_tag'] = payload['serial']
                 
                 result = self.api.create_hardware(payload)
                 
                 if result.get('status') == 'success':
                     asset_id = result['payload']['id']
-                    console.print(f"  {STATUS_OK} Monitor created (ID: {asset_id})")
+                    self.logger.verbose(f"  {STATUS_OK} Monitor created (ID: {asset_id})")
                     action = 'created'
                 else:
-                    console.print(f"  {STATUS_ERROR} Creation failed: {result.get('messages', 'Unknown error')}")
+                    print_error(f"Creation failed: {result.get('messages', 'Unknown error')}")
                     return None
             
             # Step 6: Checkout monitor to parent laptop (if provided)
             if parent_asset_id:
-                console.print(f"  {STATUS_INFO} Checking out monitor to laptop (Asset #{parent_asset_id})...")
+                self.logger.verbose(f"  {STATUS_INFO} Checking out monitor to laptop (Asset #{parent_asset_id})...")
                 try:
                     checkout_result = self.api.checkout_hardware(
                         asset_id=asset_id,
@@ -256,11 +263,11 @@ class MonitorManager:
                     )
                     
                     if checkout_result.get('status') == 'success':
-                        console.print(f"  {STATUS_OK} Monitor checked out to laptop")
+                        self.logger.verbose(f"  {STATUS_OK} Monitor checked out to laptop")
                     else:
-                        console.print(f"  {STATUS_WARNING} Checkout warning: {checkout_result.get('messages', 'Unknown')}")
+                        self.logger.verbose(f"  {STATUS_WARNING} Checkout warning: {checkout_result.get('messages', 'Unknown')}")
                 except Exception as e:
-                    console.print(f"  {STATUS_WARNING} Checkout failed: {e}")
+                    self.logger.verbose(f"  {STATUS_WARNING} Checkout failed: {e}")
             
             return {
                 'asset_id': asset_id,
@@ -276,8 +283,8 @@ class MonitorManager:
             }
             
         except APIError as e:
-            console.print(f"  {STATUS_ERROR} API error: {e}")
+            print_error(f"API error: {e}")
             return None
         except Exception as e:
-            console.print(f"  {STATUS_ERROR} Unexpected error: {e}")
+            print_error(f"Unexpected error: {e}")
             return None

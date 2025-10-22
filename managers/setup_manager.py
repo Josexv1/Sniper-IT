@@ -169,20 +169,24 @@ class SetupManager:
             if not self._step_review_and_create_custom_fields(monitor_fieldset_id, "Monitor"):
                 return False
             
+            # Step 11: Asset Tag Naming Convention (Optional)
+            naming_convention = self._step_configure_naming_convention()
+            
             # Ask if user wants to generate config
             console.print()
             if not prompt_yes_no("Generate configuration file?", default=True):
                 print_info("Setup cancelled. Configuration not saved.")
                 return False
             
-            # Step 11: Generate Configuration
+            # Step 12: Generate Configuration
             if not self._step_generate_config(
                 company_id, 
                 laptop_category_id, 
                 laptop_fieldset_id, 
                 monitor_category_id,
                 monitor_fieldset_id,
-                status_id
+                status_id,
+                naming_convention
             ):
                 return False
             
@@ -521,6 +525,67 @@ class SetupManager:
                     print_warning(f"Status ID {status_id} not found in list")
             except ValueError:
                 print_error("Please enter a valid number")
+    
+    def _step_configure_naming_convention(self) -> str:
+        """Configure optional asset tag naming convention"""
+        console.print()
+        console.print()
+        console.print("[bold cyan]═══════════════════════════════════════════════[/bold cyan]")
+        console.print("[bold cyan]     ASSET TAG NAMING CONVENTION (Optional)    [/bold cyan]")
+        console.print("[bold cyan]═══════════════════════════════════════════════[/bold cyan]")
+        console.print()
+        
+        print_info("Asset tag generation options:")
+        console.print()
+        console.print("[bold]Option 1: Agent-managed auto-increment[/bold]")
+        console.print("  • Agent searches for last tag and increments")
+        console.print("  • Pattern-based (e.g., MIS-2026-N → MIS-2026-0001, MIS-2026-0002...)")
+        console.print()
+        console.print("[bold]Option 2: Snipe-IT built-in auto-increment[/bold]")
+        console.print("  • Configure in: Settings → Asset Tags → Auto-increment")
+        console.print("  • Managed entirely within Snipe-IT")
+        console.print()
+        console.print("[bold]Option 3: Use hostname as asset tag[/bold]")
+        console.print("  • Asset tag = hostname (e.g., LAMAD0150)")
+        console.print()
+        console.print("[dim]Note: Asset name will always be the hostname[/dim]")
+        console.print()
+        
+        if not prompt_yes_no("Do you want to use custom automatic asset tag generation by the Agent?", default=False):
+            print_info("Skipping - Agent will use hostname as asset tag")
+            print_info("You can configure asset tag auto-increment in Snipe-IT Settings if needed")
+            return ""
+        
+        console.print()
+        print_info("Enter your naming pattern:")
+        console.print("  • Use 'N' where the number should go")
+        console.print("  • Examples: MIS-2026-N, LAPTOP-N, IT-2026-N")
+        console.print()
+        
+        while True:
+            pattern = prompt_input("Asset tag pattern (or press Enter to skip)", default="")
+            
+            if not pattern or not pattern.strip():
+                print_info("No pattern configured - will use hostname as asset tag")
+                return ""
+            
+            pattern = pattern.strip()
+            
+            # Validate pattern contains 'N'
+            if 'N' not in pattern:
+                print_error("Pattern must contain 'N' for the auto-increment number")
+                console.print("  Example: MIS-2026-N")
+                continue
+            
+            # Validate pattern has only one 'N'
+            if pattern.count('N') > 1:
+                print_error("Pattern should contain only one 'N'")
+                continue
+            
+            print_ok(f"Pattern configured: {pattern}")
+            console.print()
+            console.print(f"[dim]Example tags: {pattern.replace('N', '0001')}, {pattern.replace('N', '0002')}, ...[/dim]")
+            return pattern
     
     def _validate_custom_fields(
         self, 
@@ -926,7 +991,8 @@ class SetupManager:
         laptop_fieldset_id: int,
         monitor_category_id: int,
         monitor_fieldset_id: int,
-        status_id: int
+        status_id: int,
+        naming_convention: str = ""
     ) -> bool:
         """Generate and save configuration"""
         print_header("Generating Configuration")
@@ -935,13 +1001,32 @@ class SetupManager:
         print_info("Creating configuration file...")
         
         try:
+            # Check if build secrets exist (hardcoded credentials)
+            has_build_secrets = False
+            try:
+                from core.build_secrets import BUILD_SERVER_URL, BUILD_API_KEY
+                if BUILD_SERVER_URL and BUILD_API_KEY:
+                    has_build_secrets = True
+                    print_info("Build-time credentials detected - server config will be skipped")
+            except (ImportError, AttributeError):
+                pass
+            
             # Create config from template
             config = create_default_config()
             
-            # Update with user selections
-            config['server']['url'] = self.api_url
-            config['server']['api_key'] = self.api_key
-            config['server']['verify_ssl'] = self.verify_ssl
+            # Update server config only if no build secrets
+            if has_build_secrets:
+                # Remove server section since credentials are hardcoded
+                config['server'] = {
+                    '# NOTE': 'Server URL and API key are hardcoded in the executable',
+                    '# NOTE2': 'To update credentials, rebuild with: python build.py --url URL --api-key KEY'
+                }
+            else:
+                # Update with user selections
+                config['server']['url'] = self.api_url
+                config['server']['api_key'] = self.api_key
+                config['server']['verify_ssl'] = self.verify_ssl
+            
             config['defaults']['company_id'] = company_id
             config['defaults']['status_id'] = status_id
             
@@ -952,6 +1037,9 @@ class SetupManager:
             # Monitor-specific settings
             config['defaults']['monitor_category_id'] = monitor_category_id
             config['defaults']['monitor_fieldset_id'] = monitor_fieldset_id
+            
+            # Asset tag naming convention
+            config['defaults']['naming_convention'] = naming_convention
             
             # Update db_columns with actual values from Snipe-IT
             total_mappings = len(self.actual_field_mappings) + len(self.actual_monitor_field_mappings)

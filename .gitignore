@@ -181,16 +181,17 @@ $RECYCLE.BIN/
 # Configuration file (contains sensitive API keys)
 config.yaml
 
+# Build-time secrets (hardcoded credentials)
+core/build_secrets.py
+build_info.json
+
 # PyInstaller build artifacts
 build/
 dist/
+build-report-*.json
 
 # Old V1 directory (if it exists)
 V1/
-
-# Test files
-test_*.py
-test_*.ps1
 
 # Documentation artifacts (keep only README.md)
 *.md
@@ -198,3 +199,5 @@ test_*.ps1
 
 # Logs
 *.log
+*.txt
+!requirements.txt

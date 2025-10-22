@@ -12,9 +12,10 @@ from collectors.system_collector import SystemDataCollector
 from collectors.monitor_collector import MonitorCollector
 from managers.asset_manager import AssetManager
 from managers.monitor_manager import MonitorManager
-from cli.formatters import console, print_header, print_info, print_error, print_warning
+from cli.formatters import console, print_header, print_info, print_error, print_warning, spinner
 from core.constants import STATUS_OK, STATUS_ERROR, STATUS_WARNING, STATUS_INFO, APPLICATION_NAME, VERSION
 from utils.exceptions import ConfigurationError, DataCollectionError, APIError
+from utils.logger import get_logger
 
 
 class SyncManager:
@@ -23,16 +24,19 @@ class SyncManager:
     Orchestrates data collection and asset synchronization
     """
     
-    def __init__(self, config_path: Optional[str] = None, verify_ssl: bool = True):
+    def __init__(self, config_path: Optional[str] = None, verify_ssl: bool = True, verbosity: int = 0):
         """
         Initialize sync manager
         
         Args:
             config_path: Path to configuration file
             verify_ssl: Whether to verify SSL certificates
+            verbosity: Verbosity level (0=quiet, 1=verbose, 2=debug)
         """
         self.config_path = config_path
         self.verify_ssl = verify_ssl
+        self.verbosity = verbosity
+        self.logger = get_logger()
         self.config = None
         self.api_client = None
         self.asset_manager = None
@@ -45,8 +49,8 @@ class SyncManager:
         Returns:
             True if successful, False otherwise
         """
-        console.print()
-        print_info("Loading configuration...")
+        self.logger.quiet("")
+        self.logger.verbose(f"{STATUS_INFO} Loading configuration...")
         
         try:
             config_mgr = ConfigManager(self.config_path)
@@ -60,7 +64,7 @@ class SyncManager:
                 return False
             
             self.config = config_mgr.load()
-            console.print(f"{STATUS_OK} Configuration loaded successfully")
+            self.logger.verbose(f"{STATUS_OK} Configuration loaded successfully")
             return True
             
         except ConfigurationError as e:
@@ -77,37 +81,55 @@ class SyncManager:
         Returns:
             True if successful, False otherwise
         """
-        print_info("Initializing API client...")
+        self.logger.verbose(f"{STATUS_INFO} Initializing API client...")
         
         try:
-            # Get server configuration
-            server_config = self.config.get('server', {})
-            base_url = server_config.get('url', '')
-            api_key = server_config.get('api_key', '')
+            # Try to load build-time secrets first (hardcoded credentials)
+            base_url = None
+            api_key = None
+            verify_ssl = True
             
-            # Override SSL setting if specified
-            verify_ssl = self.verify_ssl and server_config.get('verify_ssl', True)
+            try:
+                from core.build_secrets import BUILD_SERVER_URL, BUILD_API_KEY, BUILD_IGNORE_SSL
+                if BUILD_SERVER_URL and BUILD_API_KEY:
+                    base_url = BUILD_SERVER_URL
+                    api_key = BUILD_API_KEY
+                    verify_ssl = not BUILD_IGNORE_SSL  # Invert because BUILD_IGNORE_SSL means don't verify
+                    self.logger.verbose(f"{STATUS_INFO} Using build-time credentials (hardcoded)")
+            except (ImportError, AttributeError):
+                # No build secrets, fall back to config file
+                pass
+            
+            # Fall back to config file if no build secrets
+            if not base_url or not api_key:
+                server_config = self.config.get('server', {})
+                base_url = server_config.get('url', '')
+                api_key = server_config.get('api_key', '')
+                
+                # Override SSL setting if specified via command line
+                verify_ssl = self.verify_ssl and server_config.get('verify_ssl', True)
+                self.logger.verbose(f"{STATUS_INFO} Using credentials from config file")
             
             # Initialize API client
             self.api_client = SnipeITClient(base_url, api_key, verify_ssl)
             
             # Test connection
-            console.print(f"{STATUS_INFO} Testing API connection...")
+            self.logger.verbose(f"{STATUS_INFO} Testing API connection...")
             connection_test = self.api_client.test_connection()
             
             if not connection_test.get('connected', False):
                 print_error(f"API connection failed: {connection_test.get('error', 'Unknown error')}")
                 return False
             
-            console.print(f"{STATUS_OK} Connected to Snipe-IT")
-            console.print(f"    Server: {connection_test.get('server_url', 'Unknown')}")
-            console.print(f"    Total Assets: {connection_test.get('total_assets', 0)}")
+            self.logger.verbose(f"{STATUS_OK} Connected to Snipe-IT")
+            self.logger.debug(f"    Server: {connection_test.get('server_url', 'Unknown')}")
+            self.logger.debug(f"    Total Assets: {connection_test.get('total_assets', 0)}")
             
             # Initialize managers
             self.asset_manager = AssetManager(self.api_client, self.config)
             self.monitor_manager = MonitorManager(self.api_client, self.config)
             
-            console.print(f"{STATUS_OK} Managers initialized")
+            self.logger.verbose(f"{STATUS_OK} Managers initialized")
             return True
             
         except APIError as e:
@@ -124,13 +146,19 @@ class SyncManager:
         Returns:
             System data dictionary or None if failed
         """
-        console.print()
-        print_info("Collecting system data...")
-        console.print("=" * 70)
+        self.logger.quiet("")
         
         try:
-            collector = SystemDataCollector(self.config)
-            system_data = collector.collect_all()
+            # Show spinner for quiet mode, detailed output for verbose
+            if self.verbosity == 0:
+                with spinner("🔍 Collecting system data...", "dots"):
+                    collector = SystemDataCollector(self.config)
+                    system_data = collector.collect_all()
+            else:
+                self.logger.verbose(f"{STATUS_INFO} Collecting system data...")
+                self.logger.verbose("=" * 70)
+                collector = SystemDataCollector(self.config)
+                system_data = collector.collect_all()
             
             # Display summary
             hostname = system_data['system_data'].get('hostname', 'Unknown')
@@ -139,13 +167,13 @@ class SyncManager:
             serial = system_data['system_data'].get('serial_number', 'Unknown')
             os_type = system_data.get('os_type', 'Unknown')
             
-            console.print(f"{STATUS_OK} System data collected")
-            console.print(f"    Hostname: {hostname}")
-            console.print(f"    Manufacturer: {manufacturer}")
-            console.print(f"    Model: {model}")
-            console.print(f"    Serial: {serial}")
-            console.print(f"    OS: {os_type}")
-            console.print(f"    Custom Fields: {len(system_data['custom_fields'])} fields collected")
+            self.logger.quiet(f"{STATUS_OK} System data collected")
+            self.logger.verbose(f"    Hostname: {hostname}")
+            self.logger.verbose(f"    Manufacturer: {manufacturer}")
+            self.logger.verbose(f"    Model: {model}")
+            self.logger.verbose(f"    Serial: {serial}")
+            self.logger.verbose(f"    OS: {os_type}")
+            self.logger.debug(f"    Custom Fields: {len(system_data['custom_fields'])} fields collected")
             
             return system_data
             
@@ -163,21 +191,27 @@ class SyncManager:
         Returns:
             List of monitor data dictionaries (empty if none found)
         """
-        console.print()
-        print_info("Collecting monitor data...")
-        console.print("=" * 70)
+        self.logger.quiet("")
         
         try:
-            collector = MonitorCollector(self.config)
-            monitors = collector.collect_monitors()
+            # Show spinner for quiet mode, detailed output for verbose
+            if self.verbosity == 0:
+                with spinner("🖥️  Collecting monitor data...", "dots"):
+                    collector = MonitorCollector(self.config)
+                    monitors = collector.collect_monitors()
+            else:
+                self.logger.verbose(f"{STATUS_INFO} Collecting monitor data...")
+                self.logger.verbose("=" * 70)
+                collector = MonitorCollector(self.config)
+                monitors = collector.collect_monitors()
             
             if monitors:
-                console.print(f"{STATUS_OK} Found {len(monitors)} external monitor(s)")
+                self.logger.quiet(f"{STATUS_OK} Found {len(monitors)} external monitor(s)")
                 for i, monitor in enumerate(monitors, start=1):
-                    console.print(f"    Monitor {i}: {monitor.get('manufacturer', 'Unknown')} {monitor.get('model', 'Unknown')}")
+                    self.logger.verbose(f"    Monitor {i}: {monitor.get('manufacturer', 'Unknown')} {monitor.get('model', 'Unknown')}")
             else:
-                console.print(f"{STATUS_INFO} No external monitors detected")
-                console.print("    (Internal laptop displays are automatically excluded)")
+                self.logger.verbose(f"{STATUS_INFO} No external monitors detected")
+                self.logger.debug("    (Internal laptop displays are automatically excluded)")
             
             return monitors
             
@@ -230,7 +264,14 @@ class SyncManager:
             return True
         
         # Step 5: Process laptop/desktop asset
-        asset_result = self.asset_manager.process_asset(system_data)
+        self.logger.quiet("")
+        if self.verbosity == 0:
+            with spinner("💻 Syncing laptop/desktop to Snipe-IT...", "dots"):
+                asset_result = self.asset_manager.process_asset(system_data)
+        else:
+            self.logger.verbose(f"{STATUS_INFO} Processing laptop/desktop asset...")
+            asset_result = self.asset_manager.process_asset(system_data)
+        
         if not asset_result:
             print_error("Failed to process laptop/desktop asset")
             return False
@@ -240,11 +281,21 @@ class SyncManager:
         parent_asset_id = asset_result.get('asset_id')
         monitor_results = None
         if monitors:
-            monitor_results = self.monitor_manager.process_monitors(
-                monitors, 
-                parent_hostname,
-                parent_asset_id
-            )
+            self.logger.quiet("")
+            if self.verbosity == 0:
+                with spinner("🖥️  Syncing monitors to Snipe-IT...", "dots"):
+                    monitor_results = self.monitor_manager.process_monitors(
+                        monitors, 
+                        parent_hostname,
+                        parent_asset_id
+                    )
+            else:
+                self.logger.verbose(f"{STATUS_INFO} Processing monitor assets...")
+                monitor_results = self.monitor_manager.process_monitors(
+                    monitors, 
+                    parent_hostname,
+                    parent_asset_id
+                )
         
         # Step 7: Display final summary
         self._display_sync_summary(asset_result, monitor_results, start_time)
@@ -345,7 +396,7 @@ class SyncManager:
 
 
 def run_sync(test_mode: bool = False, verify_ssl: bool = True, 
-             config_path: Optional[str] = None) -> bool:
+             config_path: Optional[str] = None, verbosity: int = 0) -> bool:
     """
     Convenience function to run synchronization
     
@@ -353,9 +404,10 @@ def run_sync(test_mode: bool = False, verify_ssl: bool = True,
         test_mode: Run in test mode (no data pushed)
         verify_ssl: Verify SSL certificates
         config_path: Path to configuration file
+        verbosity: Verbosity level (0=quiet, 1=verbose, 2=debug)
         
     Returns:
         True if successful, False otherwise
     """
-    sync_manager = SyncManager(config_path, verify_ssl)
+    sync_manager = SyncManager(config_path, verify_ssl, verbosity)
     return sync_manager.run_sync(test_mode)

@@ -15,15 +15,20 @@ class ConfigManager:
     """Manages application configuration"""
     
     # Required configuration fields
+    # Note: server.url and server.api_key are optional if build_secrets.py exists
     REQUIRED_FIELDS = [
-        'server.url',
-        'server.api_key',
         'defaults.status_id',
         'defaults.company_id',
         'defaults.laptop_category_id',
         'defaults.laptop_fieldset_id',
         'defaults.monitor_category_id',
         'defaults.monitor_fieldset_id'
+    ]
+    
+    # Conditionally required fields (needed if no build secrets)
+    CONDITIONALLY_REQUIRED = [
+        'server.url',
+        'server.api_key'
     ]
     
     def __init__(self, config_path: Optional[str] = None):
@@ -115,21 +120,37 @@ class ConfigManager:
         if not isinstance(config, dict):
             raise ConfigurationError("Configuration must be a dictionary")
         
+        # Check if build secrets exist (hardcoded credentials)
+        has_build_secrets = False
+        try:
+            from core.build_secrets import BUILD_SERVER_URL, BUILD_API_KEY
+            if BUILD_SERVER_URL and BUILD_API_KEY:
+                has_build_secrets = True
+        except (ImportError, AttributeError):
+            pass
+        
         # Check required fields
         for field in self.REQUIRED_FIELDS:
             value = self._get_nested_value(config, field)
             if value is None:
                 raise ConfigurationError(f"Missing required field: {field}")
         
-        # Validate server URL
-        server_url = config.get('server', {}).get('url', '')
-        if not server_url.startswith(('http://', 'https://')):
-            raise ConfigurationError("Server URL must start with http:// or https://")
-        
-        # Validate API key exists and is not empty
-        api_key = config.get('server', {}).get('api_key', '')
-        if not api_key or api_key.strip() == '':
-            raise ConfigurationError("API key cannot be empty")
+        # Check conditionally required fields (only if no build secrets)
+        if not has_build_secrets:
+            for field in self.CONDITIONALLY_REQUIRED:
+                value = self._get_nested_value(config, field)
+                if value is None:
+                    raise ConfigurationError(f"Missing required field: {field} (or use build.py --url --api-key)")
+            
+            # Validate server URL
+            server_url = config.get('server', {}).get('url', '')
+            if server_url and not server_url.startswith(('http://', 'https://')):
+                raise ConfigurationError("Server URL must start with http:// or https://")
+            
+            # Validate API key exists and is not empty
+            api_key = config.get('server', {}).get('api_key', '')
+            if not api_key or api_key.strip() == '':
+                raise ConfigurationError("API key cannot be empty")
     
     def _get_nested_value(self, data: Dict[str, Any], path: str) -> Any:
         """
@@ -207,7 +228,8 @@ def create_default_config() -> Dict[str, Any]:
             'laptop_category_id': 2,
             'laptop_fieldset_id': 1,
             'monitor_category_id': 5,
-            'monitor_fieldset_id': 2
+            'monitor_fieldset_id': 2,
+            'naming_convention': ''  # Optional: Asset tag pattern like 'MIS-2026-N' for auto-increment
         },
         'custom_fields': {
             'basic_system_fields': {

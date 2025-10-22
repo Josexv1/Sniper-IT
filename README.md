@@ -1,6 +1,6 @@
 # Sniper-IT Agent
 
-**Version 2.0.0**
+**Version 2.1.0**
 
 Automated asset management agent for Snipe-IT. Automatically collects laptop/desktop and monitor information, then synchronizes it to your Snipe-IT server.
 
@@ -127,13 +127,50 @@ custom_fields:
 
 Build a standalone executable for distribution:
 
+### Standard Build (requires config.yaml)
+
 ```bash
 python build.py
 ```
 
 This creates:
 - `dist/Sniper-IT-Agent.exe` - Standalone executable
+- Requires `config.yaml` next to the EXE at runtime
 - No Python installation required on target machines
+
+### Build with Hardcoded Credentials (for shared folder deployment)
+
+For simplified deployment where users just run the EXE:
+
+```bash
+# Basic build with credentials
+python build.py --url https://your-snipeit-server.com --api-key YOUR_API_KEY_HERE
+
+# Build with SSL ignore (for self-signed certificates)
+python build.py --url https://your-snipeit-server.com --api-key YOUR_API_KEY_HERE --ignore-ssl
+```
+
+**Benefits:**
+- ✅ Credentials are baked into the EXE at build time
+- ✅ Optional SSL ignore flag (use `--ignore-ssl` for self-signed certificates)
+- ✅ Users don't need to pass `--issl` flag when running
+- ✅ Simplified config.yaml (only needs defaults and custom fields, no server section)
+- ⚠️ **Security Note**: Distribute the EXE only through secure channels as it contains credentials
+
+**Important:** You still need a `config.yaml` file with:
+- `defaults` section (company_id, status_id, category_ids, fieldset_ids, naming_convention)
+- `custom_fields` section (field mappings for laptop data)
+- `monitor_custom_fields` section (field mappings for monitors)
+
+**Example deployment:**
+1. Build with credentials: `python build.py --url https://snipeit.company.com --api-key eyJ0eXAiOiJKV1... --ignore-ssl`
+2. Run setup to generate `config.yaml`: `Sniper-IT-Agent.exe --setup`
+   - Setup will detect hardcoded credentials and skip server config
+   - Will only create defaults and custom_fields sections
+3. Copy both files to shared folder: `R:\public\Inventory\`
+   - `Sniper-IT-Agent.exe` (with hardcoded credentials)
+   - `config.yaml` (with defaults and field mappings)
+4. Users run the EXE - no arguments needed!
 
 ## Command-Line Options
 
@@ -219,7 +256,50 @@ Sniper-IT/
 
 ## Deployment
 
-### As Scheduled Task (Windows)
+### Option 1: Shared Folder (Recommended for Windows)
+
+**Simplified deployment** - users just run the EXE:
+
+1. Build with hardcoded credentials:
+   ```bash
+   python build.py --url https://snipeit.company.com --api-key YOUR_API_KEY --ignore-ssl
+   ```
+   *(Use `--ignore-ssl` only if you have self-signed certificates)*
+
+2. Generate config.yaml using the built executable:
+   ```bash
+   cd dist
+   Sniper-IT-Agent.exe --setup
+   ```
+   - Setup will detect hardcoded credentials and skip server section
+   - Will only configure defaults and custom field mappings
+
+3. Copy both files to shared folder:
+   ```
+   R:\public\Inventory\
+   ├── Sniper-IT-Agent.exe  (with hardcoded credentials)
+   └── config.yaml          (with defaults and field mappings)
+   ```
+
+4. Tell users to run from the shared location:
+   ```
+   R:\public\Inventory\Sniper-IT-Agent.exe
+   ```
+   - No arguments needed
+   - No user-specific configuration
+   - Credentials are baked in
+   - SSL settings are baked in
+
+5. Optional: Add to startup or scheduled task for automatic runs:
+   ```powershell
+   schtasks /create /tn "Sniper-IT Sync" /tr "R:\public\Inventory\Sniper-IT-Agent.exe" /sc daily /st 09:00
+   ```
+
+### Option 2: Local Installation with Config File
+
+**Traditional deployment** - requires config.yaml on each machine:
+
+#### As Scheduled Task (Windows)
 
 1. Build the executable: `python build.py`
 2. Copy `Sniper-IT-Agent.exe` and `config.yaml` to target machines
@@ -228,9 +308,9 @@ Sniper-IT/
    schtasks /create /tn "Sniper-IT Sync" /tr "C:\Path\To\Sniper-IT-Agent.exe --issl" /sc daily /st 09:00
    ```
 
-### As Cron Job (Linux)
+#### As Cron Job (Linux)
 
-1. Install on target machine
+1. Install on target machine with `config.yaml`
 2. Add to crontab:
    ```bash
    crontab -e
@@ -258,11 +338,15 @@ Sniper-IT/
 - Use `--issl` flag to ignore SSL verification
 - Or add valid SSL certificate to Snipe-IT server
 
-## License
-
-This project is internal software for Feilo Sylvania Europe Ltd.
-
 ## Version History
+
+### 2.1.0 (2025-10-22)
+- **Build-time credential injection**: Hardcode URL and API key into executable
+- **Optional SSL ignore flag**: `--ignore-ssl` flag for build.py (not hardcoded)
+- **Smart setup wizard**: Detects hardcoded credentials and skips server config
+- **Simplified deployment**: Copy EXE + config.yaml to shared folder, users just run it
+- **Bug fix**: Removed incorrect import check in build.py
+- Updated README with new deployment patterns
 
 ### 2.0.0 (2025-10-21)
 - Complete rewrite with modular architecture
@@ -273,3 +357,4 @@ This project is internal software for Feilo Sylvania Europe Ltd.
 - Improved error handling
 - Test mode for safe validation
 - Custom field mapping system
+- Auto-incrementing asset tag system

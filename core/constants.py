@@ -4,7 +4,7 @@ Version, application name, and other constants
 """
 
 APPLICATION_NAME = "Sniper-IT Agent"
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 CONFIG_FILENAME = "config.yaml"
 
 # Status indicators (no emojis - text-based only)

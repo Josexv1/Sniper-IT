@@ -34,6 +34,63 @@ class MonitorCollector:
     Reference: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ne-d3dkmdt-_d3dkmdt_video_output_technology
     """
     
+    # EDID manufacturer code mapping (curated list for common monitor brands)
+    # Only maps abbreviated codes; full names like 'AOC', 'MSI' are kept as-is
+    MANUFACTURER_CODE_MAPPING = {
+        # HP codes (multiple)
+        'HPN': 'HP',
+        'HWP': 'HP',
+        'HPC': 'HP',
+        'HPD': 'HP',
+        'HPQ': 'HP',
+        'HPE': 'HP',
+        
+        # Philips codes
+        'PHL': 'Philips',
+        
+        # Samsung codes
+        'SAM': 'Samsung',
+        'SEM': 'Samsung',
+        
+        # LG codes
+        'GSM': 'LG',
+        'LGD': 'LG',
+        
+        # ASUS codes
+        'AUS': 'ASUS',
+        'ACI': 'ASUS',
+        
+        # Dell codes
+        'DEL': 'Dell',
+        
+        # Acer codes
+        'ACR': 'Acer',
+        
+        # BenQ codes
+        'BNQ': 'BenQ',
+        
+        # Lenovo codes
+        'LEN': 'Lenovo',
+        
+        # ViewSonic codes
+        'VSC': 'ViewSonic',
+        
+        # Sony codes
+        'SNY': 'Sony',
+        
+        # NEC codes
+        'NEC': 'NEC',
+        
+        # Apple codes
+        'APP': 'Apple',
+    }
+    
+    # Common brand names to check in model names
+    KNOWN_BRANDS = [
+        'HP', 'Philips', 'Samsung', 'Dell', 'Lenovo', 'AOC', 'ASUS', 'Acer',
+        'BenQ', 'ViewSonic', 'LG', 'MSI', 'Sony', 'Apple', 'NEC', 'Eizo', 'Iiyama'
+    ]
+    
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         Initialize the monitor collector
@@ -432,7 +489,10 @@ if ($Monitors.Count -eq 0) {
     def _process_monitor_data(self, raw_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Process and normalize raw monitor data
-        Handles empty serials, normalizes values, etc.
+        Uses hybrid approach for manufacturer detection:
+        1. Try to extract from model name (e.g., "HP 23xi" -> "HP")
+        2. Use EDID code directly if it's a full name (e.g., "AOC", "MSI")
+        3. Fall back to code mapping (e.g., "HWP" -> "HP")
         
         Args:
             raw_data: Raw monitor data from PowerShell
@@ -442,16 +502,20 @@ if ($Monitors.Count -eq 0) {
         """
         try:
             # Extract core fields
-            manufacturer = str(raw_data.get('manufacturer', 'Unknown')).strip()
+            edid_code = str(raw_data.get('manufacturer', 'Unknown')).strip()
             model = str(raw_data.get('model', 'Unknown Monitor')).strip()
             serial = str(raw_data.get('serial_number', '')).strip()
             
-            # Normalize empty/invalid values
-            if not manufacturer or manufacturer.lower() in ['unknown', 'n/a', '']:
-                manufacturer = 'Unknown'
-            
+            # Normalize model
             if not model or model.lower() in ['unknown', 'n/a', '', 'unknown monitor']:
                 model = 'Unknown Monitor'
+            
+            # Determine manufacturer using hybrid approach
+            manufacturer = self._determine_manufacturer(edid_code, model)
+            
+            # Normalize manufacturer if still unknown
+            if not manufacturer or manufacturer.lower() in ['unknown', 'n/a', '']:
+                manufacturer = 'Unknown'
             
             # Normalize serial number (handle empty/default cases)
             serial = self._normalize_serial_number(serial, manufacturer, model)
@@ -478,6 +542,38 @@ if ($Monitors.Count -eq 0) {
         except Exception as e:
             print(f"Warning: Failed to process monitor data: {e}")
             return None
+    
+    def _determine_manufacturer(self, edid_code: str, model: str) -> str:
+        """
+        Determine manufacturer using hybrid approach:
+        1. Extract from model name if it starts with a known brand
+        2. Use EDID code directly if it's already a full brand name
+        3. Map EDID code to full name using lookup table
+        
+        Args:
+            edid_code: Raw EDID manufacturer code (e.g., 'HWP', 'AOC', 'MSI')
+            model: Monitor model name (e.g., 'HP 23xi', 'Q27G2SG4')
+            
+        Returns:
+            Full manufacturer name
+        """
+        # Step 1: Try to extract manufacturer from model name
+        # Check if model starts with any known brand name
+        for brand in self.KNOWN_BRANDS:
+            # Check if model starts with brand name followed by space or hyphen
+            if model.startswith(f"{brand} ") or model.startswith(f"{brand}-"):
+                return brand
+        
+        # Step 2: Check if EDID code is already a full brand name (e.g., 'AOC', 'MSI')
+        if edid_code in self.KNOWN_BRANDS:
+            return edid_code
+        
+        # Step 3: Try mapping EDID code to full name
+        if edid_code in self.MANUFACTURER_CODE_MAPPING:
+            return self.MANUFACTURER_CODE_MAPPING[edid_code]
+        
+        # Step 4: Fall back to EDID code as-is
+        return edid_code
     
     def _normalize_serial_number(self, serial: str, manufacturer: str, model: str) -> str:
         """
