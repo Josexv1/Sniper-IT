@@ -129,6 +129,22 @@ class AssetManager:
             
             self.logger.verbose(f"{STATUS_INFO} Using category ID: {category_id} ({asset_type_display})")
             
+            # Check if model exists to detect category changes
+            existing_model_id = self.api.find_model_by_name(model, manufacturer_id)
+            if existing_model_id:
+                try:
+                    existing_model = self.api.get_model_by_id(existing_model_id)
+                    existing_category_id = existing_model.get('category', {}).get('id')
+                    existing_category_name = existing_model.get('category', {}).get('name', 'Unknown')
+                    
+                    if existing_category_id != category_id:
+                        self.logger.verbose(f"{STATUS_INFO} Model category mismatch detected:")
+                        self.logger.verbose(f"    Current: {existing_category_name} (ID: {existing_category_id})")
+                        self.logger.verbose(f"    Expected: {asset_type_display} (ID: {category_id})")
+                        self.logger.verbose(f"{STATUS_INFO} Updating model category to {asset_type_display}...")
+                except Exception:
+                    pass
+            
             model_id = self.api.find_or_create_model(
                 name=model,
                 model_number=model,  # Use model name as model number
@@ -167,16 +183,23 @@ class AssetManager:
             if existing_asset_id:
                 self.logger.verbose(f"{STATUS_OK} Found existing asset ID: {existing_asset_id}")
                 
-                # Get existing data to preserve asset_tag
+                # Get existing data to check category
                 existing_data = self.api.get_hardware_by_id(existing_asset_id)
-                existing_tag = existing_data.get('asset_tag', '')
+                existing_model = existing_data.get('model', {})
+                existing_category = existing_model.get('category', {})
+                existing_category_id = existing_category.get('id')
+                existing_category_name = existing_category.get('name', 'Unknown')
                 
-                if existing_tag:
-                    payload['asset_tag'] = existing_tag
-                    self.logger.verbose(f"{STATUS_INFO} Preserving asset tag: {existing_tag}")
-                else:
-                    # Generate new asset tag
-                    payload['asset_tag'] = self._generate_asset_tag(hostname)
+                # Check if asset is in wrong category
+                if existing_category_id and existing_category_id != category_id:
+                    self.logger.verbose(f"{STATUS_WARNING} Asset found in incorrect category!")
+                    self.logger.verbose(f"    Current category: {existing_category_name} (ID: {existing_category_id})")
+                    self.logger.verbose(f"    Expected category: {asset_type_display} (ID: {category_id})")
+                    self.logger.verbose(f"{STATUS_INFO} Updating asset to correct category...")
+                
+                # Always generate asset tag based on naming convention
+                payload['asset_tag'] = self._generate_asset_tag(hostname)
+                self.logger.verbose(f"{STATUS_INFO} Using asset tag: {payload['asset_tag']}")
                 
                 self.logger.verbose(f"{STATUS_INFO} Updating asset...")
                 result = self.api.update_hardware(existing_asset_id, payload)
@@ -272,13 +295,14 @@ class AssetManager:
     
     def _generate_asset_tag(self, hostname: str) -> str:
         """
-        Generate asset tag based on naming convention or use hostname
+        Generate asset tag based on naming convention or use hostname.
+        Always generates a new tag - does not preserve existing tags.
         
         Args:
             hostname: Computer hostname to use as fallback
             
         Returns:
-            Generated asset tag string
+            Generated asset tag string (e.g., MIS-2025-0027)
         """
         naming_convention = self.defaults.get('naming_convention', '').strip()
         

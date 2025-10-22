@@ -305,11 +305,23 @@ class SnipeITClient:
         response = self._request('POST', '/models', json=payload)
         return response.json()
     
+    def update_model(self, model_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Update existing model"""
+        response = self._request('PATCH', f'/models/{model_id}', json=payload)
+        return response.json()
+    
+    def get_model_by_id(self, model_id: int) -> Dict[str, Any]:
+        """Get model details by ID"""
+        response = self._request('GET', f'/models/{model_id}')
+        return response.json()
+    
     def find_or_create_model(self, name: str, model_number: str, 
                             manufacturer_id: int, category_id: int, 
                             fieldset_id: int) -> int:
         """
-        Find existing model or create new one
+        Find existing model or create new one.
+        If model exists but has wrong category, updates the category.
+        This handles cases where a machine changes type (laptop→server).
         
         Args:
             name: Model name
@@ -327,6 +339,27 @@ class SnipeITClient:
         # Try to find existing
         existing_id = self.find_model_by_name(name, manufacturer_id)
         if existing_id:
+            # Check if category matches and update if needed
+            try:
+                model_data = self.get_model_by_id(existing_id)
+                existing_category_id = model_data.get('category', {}).get('id')
+                existing_category_name = model_data.get('category', {}).get('name', 'Unknown')
+                
+                # If category doesn't match, update it
+                if existing_category_id != category_id:
+                    update_payload = {
+                        'category_id': category_id,
+                        'fieldset_id': fieldset_id  # Update fieldset too in case it changed
+                    }
+                    result = self.update_model(existing_id, update_payload)
+                    if result.get('status') != 'success':
+                        raise APIError(f"Failed to update model category: {result.get('messages', 'Unknown error')}")
+            except APIError:
+                raise
+            except Exception:
+                # If we can't check/update, just return the existing ID
+                pass
+            
             return existing_id
         
         # Create new

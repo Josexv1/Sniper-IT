@@ -225,11 +225,17 @@ class SystemDataCollector:
         )
         
         # Serial number with multiple fallbacks
+        # Note: DMI serial files require root access on Linux, so we generate unique serials
+        # Try product_serial first (requires root, will likely fail)
         serial = self._run_bash("cat /sys/class/dmi/id/product_serial 2>/dev/null")
+        
+        # If not readable or invalid, try board_serial (also requires root)
         if not serial or serial.lower() in ['unknown', 'not specified', 'to be filled by o.e.m.']:
             serial = self._run_bash("cat /sys/class/dmi/id/board_serial 2>/dev/null")
+        
+        # Generate unique serial from hostname and MAC (no root required, guaranteed unique)
+        # This is the most reliable approach for domain-joined Linux systems
         if not serial or serial.lower() in ['unknown', 'not specified']:
-            # Generate consistent serial from hostname and MAC
             hostname = self.collected_data.get('hostname', 'unknown')
             mac = self._run_bash("cat /sys/class/net/$(ls /sys/class/net | grep -v lo | head -1)/address 2>/dev/null")
             if mac:
