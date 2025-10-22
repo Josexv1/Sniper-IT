@@ -108,14 +108,43 @@ class SetupManager:
                 return False
             console.print()
         
+        # Check if build secrets exist (hardcoded credentials)
+        has_build_secrets = False
         try:
-            # Step 1: Server Configuration
-            if not self._step_server_configuration():
-                return False
-            
-            # Step 2: Test API Connection
-            if not self._step_test_connection():
-                return False
+            from core.build_secrets import BUILD_SERVER_URL, BUILD_API_KEY, BUILD_IGNORE_SSL
+            if BUILD_SERVER_URL and BUILD_API_KEY:
+                has_build_secrets = True
+                self.api_url = BUILD_SERVER_URL
+                self.api_key = BUILD_API_KEY
+                # Override verify_ssl if build secrets specify ignore SSL
+                if BUILD_IGNORE_SSL:
+                    self.verify_ssl = False
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                
+                console.print()
+                print_ok("Build-time credentials detected!")
+                print_info(f"Server: {self.api_url}")
+                print_info(f"SSL Verification: {'Enabled' if self.verify_ssl else 'Disabled'}")
+                console.print()
+                print_info("Server configuration will be skipped - credentials are hardcoded in executable")
+                console.print()
+        except (ImportError, AttributeError):
+            pass
+        
+        try:
+            # Skip server configuration if credentials are hardcoded
+            if not has_build_secrets:
+                # Step 1: Server Configuration
+                if not self._step_server_configuration():
+                    return False
+                
+                # Step 2: Test API Connection
+                if not self._step_test_connection():
+                    return False
+            else:
+                # Use build secrets to create session and test connection
+                if not self._step_test_connection_with_build_secrets():
+                    return False
             
             # Step 3: Select Company
             company_id = self._step_select_company()
@@ -306,6 +335,63 @@ class SetupManager:
         except requests.exceptions.SSLError as e:
             print_error(f"SSL Certificate Error: {e}")
             print_warning("Try using --issl flag to ignore SSL verification")
+            return False
+        except requests.exceptions.ConnectionError:
+            print_error(f"Connection Error: Cannot reach {self.api_url}")
+            print_warning("Check the server URL and your network connection")
+            return False
+        except requests.exceptions.Timeout:
+            print_error("Connection Timeout: Server took too long to respond")
+            return False
+        except Exception as e:
+            print_error(f"Unexpected error: {e}")
+            return False
+    
+    def _step_test_connection_with_build_secrets(self) -> bool:
+        """Test API connection using build secrets (hardcoded credentials)"""
+        print_header("API Connection Test")
+        console.print()
+        
+        print_info("Testing connection with hardcoded credentials...")
+        console.print()
+        
+        try:
+            # Create session
+            self.session = requests.Session()
+            self.session.headers.update({
+                'Authorization': f'Bearer {self.api_key}',
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            })
+            
+            # Test endpoint
+            response = self.session.get(
+                f"{self.api_url}/api/v1/hardware",
+                params={'limit': 1},
+                verify=self.verify_ssl,
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                total_assets = data.get('total', 0)
+                print_ok("Connection successful!")
+                print_info(f"Total assets in Snipe-IT: {total_assets:,}")
+                console.print()
+                return True
+            elif response.status_code == 401:
+                print_error("Authentication failed - Invalid hardcoded API key")
+                print_warning("The executable was built with invalid credentials")
+                return False
+            else:
+                print_error(f"Connection failed: HTTP {response.status_code}")
+                print_info(f"Response: {response.text[:200]}")
+                return False
+                
+        except requests.exceptions.SSLError as e:
+            print_error(f"SSL Certificate Error: {e}")
+            print_warning("The executable was built with SSL verification enabled")
+            print_warning("Rebuild with --ignore-ssl flag if using self-signed certificates")
             return False
         except requests.exceptions.ConnectionError:
             print_error(f"Connection Error: Cannot reach {self.api_url}")

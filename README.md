@@ -1,6 +1,6 @@
 # Sniper-IT Agent
 
-**Version 2.2.0**
+**Version 2.2.4**
 
 Automated asset management agent for Snipe-IT. Automatically collects laptop/desktop and monitor information, then synchronizes it to your Snipe-IT server.
 
@@ -148,12 +148,16 @@ python build.py --url https://your-snipeit-server.com --api-key YOUR_API_KEY_HER
 
 # Build with SSL ignore (for self-signed certificates)
 python build.py --url https://your-snipeit-server.com --api-key YOUR_API_KEY_HERE --ignore-ssl
+
+# Build with automatic logging enabled
+python build.py --url https://your-snipeit-server.com --api-key YOUR_API_KEY_HERE --ignore-ssl --auto-log
 ```
 
 **Benefits:**
 - ✅ Credentials are baked into the EXE at build time
 - ✅ Optional SSL ignore flag (use `--ignore-ssl` for self-signed certificates)
-- ✅ Users don't need to pass `--issl` flag when running
+- ✅ Optional automatic logging (use `--auto-log` to generate logs on every run)
+- ✅ Users don't need to pass `--issl` or `--log` flags when running
 - ✅ Simplified config.yaml (only needs defaults and custom fields, no server section)
 - ⚠️ **Security Note**: Distribute the EXE only through secure channels as it contains credentials
 
@@ -163,14 +167,14 @@ python build.py --url https://your-snipeit-server.com --api-key YOUR_API_KEY_HER
 - `monitor_custom_fields` section (field mappings for monitors)
 
 **Example deployment:**
-1. Build with credentials: `python build.py --url https://snipeit.company.com --api-key eyJ0eXAiOiJKV1... --ignore-ssl`
+1. Build with credentials: `python build.py --url https://snipeit.company.com --api-key eyJ0eXAiOiJKV1... --ignore-ssl --auto-log`
 2. Run setup to generate `config.yaml`: `Sniper-IT-Agent.exe --setup`
    - Setup will detect hardcoded credentials and skip server config
    - Will only create defaults and custom_fields sections
 3. Copy both files to shared folder: `R:\public\Inventory\`
-   - `Sniper-IT-Agent.exe` (with hardcoded credentials)
+   - `Sniper-IT-Agent.exe` (with hardcoded credentials and auto-logging)
    - `config.yaml` (with defaults and field mappings)
-4. Users run the EXE - no arguments needed!
+4. Users run the EXE - no arguments needed! Logs will be generated automatically.
 
 ## Command-Line Options
 
@@ -178,7 +182,10 @@ python build.py --url https://your-snipeit-server.com --api-key YOUR_API_KEY_HER
 |------|-------------|
 | `--setup` | Run interactive setup wizard |
 | `--test` | Test mode - collect data but don't push to Snipe-IT |
-| `--issl` | Ignore SSL certificate verification |
+| `--issl` / `--ignore-ssl` | Ignore SSL certificate verification |
+| `--log` | Save all output to a log file (hostname_timestamp.txt) |
+| `-v` | Verbose mode - show all output text |
+| `-vv` | Very verbose mode - show debug information |
 | `--version` | Display version information |
 
 ## How It Works
@@ -264,9 +271,10 @@ Sniper-IT/
 
 1. Build with hardcoded credentials:
    ```bash
-   python build.py --url https://snipeit.company.com --api-key YOUR_API_KEY --ignore-ssl
+   python build.py --url https://snipeit.company.com --api-key YOUR_API_KEY --ignore-ssl --auto-log
    ```
-   *(Use `--ignore-ssl` only if you have self-signed certificates)*
+   - Use `--ignore-ssl` for self-signed certificates
+   - Use `--auto-log` to enable automatic log file generation
 
 2. Generate config.yaml using the built executable:
    ```bash
@@ -279,7 +287,7 @@ Sniper-IT/
 3. Copy both files to shared folder:
    ```
    R:\public\Inventory\
-   ├── Sniper-IT-Agent.exe  (with hardcoded credentials)
+   ├── Sniper-IT-Agent.exe  (with hardcoded credentials and auto-logging)
    └── config.yaml          (with defaults and field mappings)
    ```
 
@@ -291,6 +299,7 @@ Sniper-IT/
    - No user-specific configuration
    - Credentials are baked in
    - SSL settings are baked in
+   - Logs automatically generated in current directory
 
 5. Optional: Add to startup or scheduled task for automatic runs:
    ```powershell
@@ -341,6 +350,13 @@ Sniper-IT/
 - Or add valid SSL certificate to Snipe-IT server
 
 ## Version History
+
+### 2.2.4 (2025-10-22)
+- **Build-time auto-logging**: New `--auto-log` flag for build.py enables automatic log generation
+- **Smart setup wizard**: Detects hardcoded credentials and skips server configuration prompts
+- **SSL warning suppression**: Automatically suppresses urllib3 SSL warnings when built with `--ignore-ssl`
+- **Enhanced deployment**: Users run EXE with zero arguments - no need for `--issl` or `--log` flags
+- **Improved UX**: Clean console output without SSL certificate warnings when using self-signed certs
 
 ### 2.2.0 (2025-10-22)
 - **Multi-category support**: Automatic detection for Laptop, Desktop, and Server categories

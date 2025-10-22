@@ -366,7 +366,7 @@ def inject_build_metadata():
     
     return metadata
 
-def inject_build_secrets(url=None, api_key=None, ignore_ssl=False):
+def inject_build_secrets(url=None, api_key=None, ignore_ssl=False, auto_log=False):
     """
     Inject build-time secrets into the application
     
@@ -374,6 +374,7 @@ def inject_build_secrets(url=None, api_key=None, ignore_ssl=False):
         url: Snipe-IT server URL to hardcode
         api_key: API key to hardcode
         ignore_ssl: Whether to ignore SSL certificate verification
+        auto_log: Whether to enable automatic log file generation
     """
     print_header("INJECTING BUILD SECRETS")
     
@@ -391,10 +392,12 @@ DO NOT COMMIT THIS FILE TO VERSION CONTROL
 BUILD_SERVER_URL = {url}
 BUILD_API_KEY = {api_key}
 BUILD_IGNORE_SSL = {ignore_ssl}  # Set via --ignore-ssl flag
+BUILD_AUTO_LOG = {auto_log}  # Set via --auto-log flag
 '''.format(
         url=repr(url) if url else 'None',
         api_key=repr(api_key) if api_key else 'None',
-        ignore_ssl=ignore_ssl
+        ignore_ssl=ignore_ssl,
+        auto_log=auto_log
     )
     
     with open(build_secrets_path, 'w', encoding='utf-8') as f:
@@ -405,12 +408,17 @@ BUILD_IGNORE_SSL = {ignore_ssl}  # Set via --ignore-ssl flag
         print(f"   URL: {url}")
         print(f"   API Key: {'*' * 20}...{api_key[-4:] if len(api_key) > 4 else '****'}")
         print(f"   Ignore SSL: {ignore_ssl}")
+        print(f"   Auto-Log: {auto_log}")
         if ignore_ssl:
             print_warning("SSL verification will be disabled - use only with self-signed certificates")
+        if auto_log:
+            print_warning("Automatic logging enabled - logs will be generated on every run")
         print_warning("This executable has credentials baked in - distribute securely!")
     else:
         print_step(f"No secrets provided - creating empty template: {build_secrets_path}")
         print(f"   Build will use config.yaml at runtime")
+        if auto_log:
+            print_step(f"Auto-log enabled: Logs will be generated on every run")
     
     return bool(url and api_key)
 
@@ -572,6 +580,7 @@ Examples:
   python build.py --clean                                             # Clean all build artifacts only
   python build.py --url https://snipeit.com --api-key YOUR_KEY       # Build with hardcoded credentials
   python build.py --url https://snipeit.com --api-key YOUR_KEY --ignore-ssl  # With SSL ignore
+  python build.py --url https://snipeit.com --api-key YOUR_KEY --ignore-ssl --auto-log  # Full deployment build
         '''
     )
     parser.add_argument(
@@ -593,6 +602,11 @@ Examples:
         '--ignore-ssl',
         action='store_true',
         help='Hardcode SSL ignore flag (for self-signed certificates)'
+    )
+    parser.add_argument(
+        '--auto-log',
+        action='store_true',
+        help='Enable automatic log file generation (equivalent to --log flag)'
     )
     return parser.parse_args()
 
@@ -639,7 +653,7 @@ def main():
     clean_build_directories()
     
     # Step 5: Inject build secrets (if provided)
-    has_secrets = inject_build_secrets(args.url, args.api_key, args.ignore_ssl)
+    has_secrets = inject_build_secrets(args.url, args.api_key, args.ignore_ssl, args.auto_log)
     
     # Step 6: Inject build metadata
     metadata = inject_build_metadata()

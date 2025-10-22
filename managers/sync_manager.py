@@ -5,6 +5,7 @@ Orchestrates the full synchronization process
 
 from typing import Dict, Any, Optional
 from datetime import datetime
+import urllib3
 
 from core.api_client import SnipeITClient
 from core.config_manager import ConfigManager
@@ -95,6 +96,11 @@ class SyncManager:
                     base_url = BUILD_SERVER_URL
                     api_key = BUILD_API_KEY
                     verify_ssl = not BUILD_IGNORE_SSL  # Invert because BUILD_IGNORE_SSL means don't verify
+                    
+                    # Suppress SSL warnings if BUILD_IGNORE_SSL is enabled
+                    if BUILD_IGNORE_SSL:
+                        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                    
                     self.logger.verbose(f"{STATUS_INFO} Using build-time credentials (hardcoded)")
             except (ImportError, AttributeError):
                 # No build secrets, fall back to config file

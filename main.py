@@ -75,6 +75,15 @@ def main():
     
     args = parser.parse_args()
     
+    # Check for build-time auto-log flag
+    auto_log_enabled = False
+    try:
+        from core.build_secrets import BUILD_AUTO_LOG
+        if BUILD_AUTO_LOG:
+            auto_log_enabled = True
+    except (ImportError, AttributeError):
+        pass
+    
     # Determine verbosity level
     verbosity = 0
     if args.very_verbose:
@@ -82,9 +91,9 @@ def main():
     elif args.verbose:
         verbosity = 1  # Verbose level
     
-    # Setup log file if requested
+    # Setup log file if requested or if auto-log is enabled
     log_file = None
-    if args.log_to_file:
+    if args.log_to_file or auto_log_enabled:
         hostname = socket.gethostname()
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         log_file = f"{hostname}_{timestamp}.txt"
