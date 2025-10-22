@@ -1,6 +1,6 @@
 # Sniper-IT Agent
 
-**Version 2.1.0**
+**Version 2.2.0**
 
 Automated asset management agent for Snipe-IT. Automatically collects laptop/desktop and monitor information, then synchronizes it to your Snipe-IT server.
 
@@ -339,6 +339,21 @@ Sniper-IT/
 - Or add valid SSL certificate to Snipe-IT server
 
 ## Version History
+
+### 2.2.0 (2025-10-22)
+- **Multi-category support**: Automatic detection for Laptop, Desktop, and Server categories
+- **Smart category detection**: Auto-detects category IDs by name matching with visual recommendations
+- **Smart fieldset detection**: Keyword-based fieldset matching for computer and monitor types
+- **Chassis-type detection**: Automatic laptop/desktop/server classification using Win32_SystemEnclosure
+- **Invalid serial handling**: Desktops/servers with placeholder serials use hostname instead
+- **Enhanced monitor collector**: Hybrid manufacturer detection with ~15 common brands via EDID codes
+- **Auto-incrementing asset tags**: Configurable naming patterns (e.g., 'MIS-2026-N')
+- **Improved setup wizard UX**: 
+  - Renamed 'Laptop Fieldset' to 'Computer Fieldset' (shared across laptop/desktop/server)
+  - Better naming convention explanations with pattern examples
+  - Field association only prompts when warnings/missing fields detected
+  - Simplified config generation (removed hardcoded metadata)
+- **Monitor name simplification**: No #2 suffix or 'Connected to' text (tracked via serial)
 
 ### 2.1.0 (2025-10-22)
 - **Build-time credential injection**: Hardcode URL and API key into executable
