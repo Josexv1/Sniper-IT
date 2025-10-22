@@ -85,6 +85,15 @@ class SystemDataCollector:
             "(Get-CimInstance -ClassName Win32_BIOS).SerialNumber"
         )
         
+        # Detect chassis type to determine if laptop or desktop
+        # ChassisTypes: 3=Desktop, 4=Low Profile Desktop, 5=Pizza Box, 6=Mini Tower, 7=Tower
+        #               8=Portable, 9=Laptop, 10=Notebook, 11=Hand Held, 12=Docking Station
+        #               13=All in One, 14=Sub Notebook, 30=Tablet, 31=Convertible, 32=Detachable
+        chassis_type = self._run_powershell(
+            "(Get-CimInstance -ClassName Win32_SystemEnclosure).ChassisTypes[0]"
+        )
+        self.collected_data['chassis_type'] = chassis_type if chassis_type else "Unknown"
+        
         # Hardware information - Processor
         self.collected_data['processor'] = self._run_powershell(
             "(Get-CimInstance -ClassName Win32_Processor).Name"
@@ -299,6 +308,10 @@ class SystemDataCollector:
         bios_date = self._run_bash("cat /sys/class/dmi/id/bios_date 2>/dev/null")
         self.collected_data['bios_release_date'] = bios_date if bios_date else "Unknown"
         
+        # Chassis type detection
+        chassis_type = self._run_bash("cat /sys/class/dmi/id/chassis_type 2>/dev/null")
+        self.collected_data['chassis_type'] = chassis_type if chassis_type else "Unknown"
+        
         # Current User
         username = self._run_bash("whoami")
         self.collected_data['username'] = username if username else "Unknown"
@@ -428,6 +441,48 @@ class SystemDataCollector:
         except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
             return None
     
+    def get_asset_type(self) -> str:
+        """
+        Determine the asset type based on chassis type
+        
+        Returns:
+            "laptop", "desktop", or "server"
+        """
+        chassis_type_str = str(self.collected_data.get('chassis_type', 'Unknown'))
+        
+        # Try to convert to integer
+        try:
+            chassis_type = int(chassis_type_str)
+        except (ValueError, TypeError):
+            # If can't convert, default to desktop
+            return "desktop"
+        
+        # Laptop chassis types: 8=Portable, 9=Laptop, 10=Notebook, 11=Hand Held,
+        #                       14=Sub Notebook, 30=Tablet, 31=Convertible, 32=Detachable
+        laptop_types = [8, 9, 10, 11, 14, 30, 31, 32]
+        
+        # Server chassis types: 17=Main Server Chassis, 23=Rack Mount Chassis,
+        #                       24=Sealed-case PC, 25=Multi-system chassis
+        server_types = [17, 23, 24, 25]
+        
+        if chassis_type in laptop_types:
+            return "laptop"
+        elif chassis_type in server_types:
+            return "server"
+        else:
+            # Desktop types: 3=Desktop, 4=Low Profile Desktop, 5=Pizza Box, 
+            #                6=Mini Tower, 7=Tower, 13=All in One, etc.
+            return "desktop"
+    
+    def is_laptop(self) -> bool:
+        """
+        Legacy method for backward compatibility
+        
+        Returns:
+            True if laptop, False otherwise
+        """
+        return self.get_asset_type() == "laptop"
+    
     def get_asset_data(self) -> Dict[str, Any]:
         """
         Get data formatted for Snipe-IT asset creation/update
@@ -440,7 +495,9 @@ class SystemDataCollector:
             'manufacturer': self.collected_data.get('manufacturer', 'Generic'),
             'model': self.collected_data.get('model', 'Generic Model'),
             'serial_number': self.collected_data.get('serial_number', 'Unknown'),
-            'custom_fields': self.custom_fields
+            'custom_fields': self.custom_fields,
+            'asset_type': self.get_asset_type(),  # "laptop", "desktop", or "server"
+            'is_laptop': self.is_laptop()  # Keep for backward compatibility
         }
     
     def print_summary(self) -> None:

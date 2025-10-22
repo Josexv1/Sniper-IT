@@ -263,17 +263,17 @@ class SyncManager:
             self._display_test_results(system_data, monitors)
             return True
         
-        # Step 5: Process laptop/desktop asset
+        # Step 5: Process computer asset (laptop/desktop/server)
         self.logger.quiet("")
         if self.verbosity == 0:
-            with spinner("💻 Syncing laptop/desktop to Snipe-IT...", "dots"):
+            with spinner("💻 Syncing computer asset to Snipe-IT...", "dots"):
                 asset_result = self.asset_manager.process_asset(system_data)
         else:
-            self.logger.verbose(f"{STATUS_INFO} Processing laptop/desktop asset...")
+            self.logger.verbose(f"{STATUS_INFO} Processing computer asset...")
             asset_result = self.asset_manager.process_asset(system_data)
         
         if not asset_result:
-            print_error("Failed to process laptop/desktop asset")
+            print_error("Failed to process computer asset")
             return False
         
         # Step 6: Process monitor assets
@@ -311,14 +311,18 @@ class SyncManager:
         
         # System data summary
         console.print()
-        console.print("[bold cyan]LAPTOP/DESKTOP DATA:[/bold cyan]")
+        asset_type = system_data.get('asset_type', 'desktop')  # "laptop", "desktop", or "server"
+        asset_type_display = asset_type.capitalize()
+        console.print(f"[bold cyan]{asset_type.upper()} DATA:[/bold cyan]")
         console.print()
         
         sd = system_data['system_data']
+        console.print(f"  Asset Type:    {asset_type_display}")
         console.print(f"  Hostname:      {sd.get('hostname', 'N/A')}")
         console.print(f"  Manufacturer:  {sd.get('manufacturer', 'N/A')}")
         console.print(f"  Model:         {sd.get('model', 'N/A')}")
         console.print(f"  Serial:        {sd.get('serial_number', 'N/A')}")
+        console.print(f"  Chassis Type:  {sd.get('chassis_type', 'N/A')}")
         console.print(f"  OS:            {sd.get('operating_system', 'N/A')}")
         console.print(f"  Processor:     {sd.get('processor', 'N/A')}")
         console.print(f"  Memory:        {sd.get('memory_total_gb', 'N/A')}")
@@ -364,9 +368,9 @@ class SyncManager:
         console.print(f"{STATUS_OK} SYNCHRONIZATION COMPLETE")
         console.print("=" * 70)
         
-        # Laptop/Desktop summary
+        # Computer asset summary
         console.print()
-        console.print("[bold cyan]Laptop/Desktop Asset:[/bold cyan]")
+        console.print("[bold cyan]Computer Asset:[/bold cyan]")
         console.print(f"  Asset ID:       {asset_result.get('asset_id', 'N/A')}")
         console.print(f"  Hostname:       {asset_result.get('hostname', 'N/A')}")
         console.print(f"  Action:         {asset_result.get('action', 'N/A').upper()}")

@@ -348,10 +348,5 @@ def create_default_config() -> Dict[str, Any]:
                 'db_column': '_snipeit_monitor_screen_size_35',
                 'display_name': 'Monitor Screen Size'
             }
-        },
-        'metadata': {
-            'app_name': 'Sniper-IT Agent',
-            'version': '2.0.0',
-            'last_updated': '2025-10-21'
         }
     }

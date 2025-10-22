@@ -75,28 +75,40 @@ class AssetManager:
                 - system_data: Core system information
                 - custom_fields: Custom field data
                 - os_type: Operating system type
+                - is_laptop: Boolean indicating if device is a laptop
                 
         Returns:
             Dictionary with processing results or None if failed
         """
         self.logger.verbose("")
-        self.logger.verbose(f"{STATUS_INFO} Processing laptop/desktop asset...")
+        self.logger.verbose(f"{STATUS_INFO} Processing computer asset (laptop/desktop/server)...")
         self.logger.verbose("=" * 70)
         
         try:
             # Extract data
             asset_data = system_data['system_data']
             custom_fields = system_data['custom_fields']
+            asset_type = system_data.get('asset_type', 'desktop')  # "laptop", "desktop", or "server"
             
             hostname = asset_data.get('hostname', 'Unknown')
             manufacturer = asset_data.get('manufacturer', 'Unknown')
             model = asset_data.get('model', 'Unknown')
             serial = asset_data.get('serial_number', 'Unknown')
             
+            # Capitalize for display
+            asset_type_display = asset_type.capitalize()
+            
+            self.logger.verbose(f"{STATUS_INFO} Asset Type: {asset_type_display}")
             self.logger.verbose(f"{STATUS_INFO} Hostname: {hostname}")
             self.logger.verbose(f"{STATUS_INFO} Manufacturer: {manufacturer}")
             self.logger.verbose(f"{STATUS_INFO} Model: {model}")
             self.logger.verbose(f"{STATUS_INFO} Serial: {serial}")
+            
+            # Check if serial is valid (not a placeholder)
+            is_serial_valid = self._is_serial_valid(serial)
+            if not is_serial_valid:
+                self.logger.verbose(f"{STATUS_WARNING} Serial appears to be placeholder/invalid")
+            
             self.logger.verbose("")
             
             # Step 1: Find or create manufacturer
@@ -104,25 +116,44 @@ class AssetManager:
             manufacturer_id = self.api.find_or_create_manufacturer(manufacturer)
             self.logger.verbose(f"{STATUS_OK} Manufacturer ID: {manufacturer_id}")
             
-            # Step 2: Find or create model
+            # Step 2: Find or create model (using appropriate category based on asset type)
             self.logger.verbose(f"{STATUS_INFO} Processing model: {model}")
+            
+            # Select category based on asset type
+            if asset_type == 'laptop':
+                category_id = self.defaults.get('laptop_category_id', 2)
+            elif asset_type == 'server':
+                category_id = self.defaults.get('server_category_id', 4)
+            else:  # desktop
+                category_id = self.defaults.get('desktop_category_id', 3)
+            
+            self.logger.verbose(f"{STATUS_INFO} Using category ID: {category_id} ({asset_type_display})")
+            
             model_id = self.api.find_or_create_model(
                 name=model,
                 model_number=model,  # Use model name as model number
                 manufacturer_id=manufacturer_id,
-                category_id=self.defaults.get('laptop_category_id', 2),
+                category_id=category_id,
                 fieldset_id=self.defaults.get('laptop_fieldset_id', 1)
             )
             self.logger.verbose(f"{STATUS_OK} Model ID: {model_id}")
             
-            # Step 3: Check if asset exists by hostname
+            # Step 3: Check if asset exists
+            # For desktops with invalid serials, search by hostname
+            # For laptops and desktops with valid serials, search by hostname (serial is secondary)
             self.logger.verbose(f"{STATUS_INFO} Searching for existing asset: {hostname}")
             existing_asset_id = self.api.find_hardware_by_hostname(hostname)
             
             # Step 4: Prepare payload
+            # Use hostname as serial for assets with invalid serials (mostly desktops)
+            # This ensures uniqueness since all machines are domain-joined
+            effective_serial = serial if is_serial_valid else hostname
+            if not is_serial_valid:
+                self.logger.verbose(f"{STATUS_INFO} Using hostname as serial for uniqueness: {hostname}")
+            
             payload = {
                 'name': hostname,
-                'serial': serial,
+                'serial': effective_serial,
                 'model_id': model_id,
                 'status_id': self.defaults.get('status_id', 2),
                 'company_id': self.defaults.get('company_id', 1)
@@ -177,7 +208,7 @@ class AssetManager:
             
             self.logger.verbose("")
             self.logger.verbose("=" * 70)
-            self.logger.verbose(f"{STATUS_OK} Laptop/Desktop asset processing completed")
+            self.logger.verbose(f"{STATUS_OK} {asset_type_display} asset processing completed")
             self.logger.verbose("")
             
             return {
@@ -341,3 +372,37 @@ class AssetManager:
         """
         current_number = self._extract_number_from_tag(last_tag, pattern)
         return current_number + 1
+    
+    def _is_serial_valid(self, serial: str) -> bool:
+        """
+        Check if serial number is valid (not a placeholder)
+        
+        Args:
+            serial: Serial number to validate
+            
+        Returns:
+            True if valid, False if placeholder/invalid
+        """
+        if not serial or not serial.strip():
+            return False
+        
+        serial_lower = serial.lower().strip()
+        
+        # Common placeholder values
+        invalid_patterns = [
+            'unknown',
+            'to be filled by o.e.m.',
+            'to be filled by o.e.m',
+            'default string',
+            'not specified',
+            'not available',
+            'system serial number',
+            'chassis serial number',
+            '0123456789',
+            'n/a',
+            'none',
+            '000000000000',
+            '111111111111'
+        ]
+        
+        return serial_lower not in invalid_patterns

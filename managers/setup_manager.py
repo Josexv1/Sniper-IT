@@ -130,22 +130,26 @@ class SetupManager:
             console.print()
             console.print()
             console.print("[bold cyan]═══════════════════════════════════════════════[/bold cyan]")
-            console.print("[bold cyan]        LAPTOP ASSET CONFIGURATION           [/bold cyan]")
+            console.print("[bold cyan]    COMPUTER ASSET CONFIGURATION           [/bold cyan]")
             console.print("[bold cyan]═══════════════════════════════════════════════[/bold cyan]")
             console.print()
             
-            # Step 5: Select Laptop Category
-            laptop_category_id = self._step_select_category("Laptop")
-            if laptop_category_id is None:
+            # Step 5: Select Laptop, Desktop, and Server Categories
+            category_ids = self._step_select_computer_categories()
+            if category_ids is None:
                 return False
             
-            # Step 6: Select or Create Laptop Fieldset
-            laptop_fieldset_id = self._step_select_or_create_fieldset("Laptop")
+            laptop_category_id = category_ids['laptop']
+            desktop_category_id = category_ids['desktop']
+            server_category_id = category_ids['server']
+            
+            # Step 6: Select or Create Computer Fieldset (shared for Laptop, Desktop, Server)
+            laptop_fieldset_id = self._step_select_or_create_fieldset("Computer")
             if laptop_fieldset_id is None:
                 return False
             
-            # Step 7: Review and Create Laptop Custom Fields
-            if not self._step_review_and_create_custom_fields(laptop_fieldset_id, "Laptop"):
+            # Step 7: Review and Create Computer Custom Fields
+            if not self._step_review_and_create_custom_fields(laptop_fieldset_id, "Computer"):
                 return False
             
             console.print()
@@ -181,7 +185,9 @@ class SetupManager:
             # Step 12: Generate Configuration
             if not self._step_generate_config(
                 company_id, 
-                laptop_category_id, 
+                laptop_category_id,
+                desktop_category_id,
+                server_category_id,
                 laptop_fieldset_id, 
                 monitor_category_id,
                 monitor_fieldset_id,
@@ -378,11 +384,28 @@ class SetupManager:
             print_warning("No categories found - using default ID 2")
             return 2
         
+        # Smart detection: Find category that matches the asset type by name
+        detected_id = None
+        search_term = asset_type.lower()
+        
+        for cat in categories:
+            cat_name = cat.get('name', '').lower()
+            cat_id = cat.get('id')
+            
+            if search_term in cat_name and not detected_id:
+                detected_id = cat_id
+                break
+        
         console.print()
         display_categories_table(categories)
         console.print()
         
-        default_id = "2" if asset_type == "Laptop" else "5"
+        # Use detected ID if found, otherwise use defaults
+        if detected_id:
+            default_id = str(detected_id)
+        else:
+            default_id = "2" if asset_type == "Laptop" else "5"
+        
         while True:
             category_id = prompt_input(f"Select {asset_type} category ID", default=default_id)
             try:
@@ -394,6 +417,108 @@ class SetupManager:
                     print_warning(f"Category ID {category_id} not found in list")
             except ValueError:
                 print_error("Please enter a valid number")
+    
+    def _step_select_computer_categories(self) -> Optional[Dict[str, int]]:
+        """Select categories for laptop, desktop, and server (comma-separated)"""
+        print_header("Computer Categories Selection")
+        console.print()
+        
+        print_info("Fetching categories...")
+        data = self._api_get('categories', {'limit': 100})
+        
+        if not data:
+            print_error("Failed to fetch categories")
+            return None
+        
+        categories = data.get('rows', [])
+        if not categories:
+            print_warning("No categories found - using defaults")
+            return {'laptop': 2, 'desktop': 3, 'server': 4}
+        
+        # Smart detection: Find categories that match Laptop, Desktop, Server by name
+        detected_laptop = None
+        detected_desktop = None
+        detected_server = None
+        
+        for cat in categories:
+            cat_name = cat.get('name', '').lower()
+            cat_id = cat.get('id')
+            
+            if 'laptop' in cat_name and not detected_laptop:
+                detected_laptop = cat_id
+            elif 'desktop' in cat_name and not detected_desktop:
+                detected_desktop = cat_id
+            elif 'server' in cat_name and not detected_server:
+                detected_server = cat_id
+        
+        # Build smart default suggestion
+        smart_default = f"{detected_laptop or 2},{detected_desktop or 3},{detected_server or 4}"
+        
+        console.print()
+        display_categories_table(categories)
+        console.print()
+        
+        print_info("Select Laptop, Desktop, and Server categories (comma-separated)")
+        if detected_laptop or detected_desktop or detected_server:
+            console.print(f"  [dim]Detected: Laptop={detected_laptop or '?'}, Desktop={detected_desktop or '?'}, Server={detected_server or '?'}[/dim]")
+        console.print("  [dim]Example: 3,38,15  where 3=Laptop, 38=Desktop, 15=Server[/dim]")
+        console.print()
+        
+        while True:
+            user_input = prompt_input("Enter category IDs (Laptop,Desktop,Server)", default=smart_default)
+            
+            # Parse comma-separated input
+            parts = [p.strip() for p in user_input.split(',')]
+            
+            if len(parts) != 3:
+                print_error("Please enter exactly 3 category IDs separated by commas")
+                console.print("  [dim]Example: 3,38,15[/dim]")
+                continue
+            
+            try:
+                laptop_id = int(parts[0])
+                desktop_id = int(parts[1])
+                server_id = int(parts[2])
+                
+                # Validate all IDs exist
+                laptop_exists = any(c.get('id') == laptop_id for c in categories)
+                desktop_exists = any(c.get('id') == desktop_id for c in categories)
+                server_exists = any(c.get('id') == server_id for c in categories)
+                
+                if not laptop_exists:
+                    print_warning(f"Laptop category ID {laptop_id} not found")
+                    continue
+                
+                if not desktop_exists:
+                    print_warning(f"Desktop category ID {desktop_id} not found")
+                    continue
+                
+                if not server_exists:
+                    print_warning(f"Server category ID {server_id} not found")
+                    continue
+                
+                # Get category names for confirmation
+                laptop_name = next((c.get('name') for c in categories if c.get('id') == laptop_id), 'Unknown')
+                desktop_name = next((c.get('name') for c in categories if c.get('id') == desktop_id), 'Unknown')
+                server_name = next((c.get('name') for c in categories if c.get('id') == server_id), 'Unknown')
+                
+                console.print()
+                console.print(f"  [cyan]Laptop Category:[/cyan]  {laptop_name} (ID: {laptop_id})")
+                console.print(f"  [cyan]Desktop Category:[/cyan] {desktop_name} (ID: {desktop_id})")
+                console.print(f"  [cyan]Server Category:[/cyan]  {server_name} (ID: {server_id})")
+                console.print()
+                
+                # Confirm selection
+                if prompt_yes_no("Is this correct?", default=True):
+                    print_ok(f"Selected Laptop: {laptop_id}, Desktop: {desktop_id}, Server: {server_id}")
+                    return {'laptop': laptop_id, 'desktop': desktop_id, 'server': server_id}
+                else:
+                    console.print()
+                    continue
+                    
+            except ValueError:
+                print_error("Please enter valid numbers separated by commas")
+                console.print("  [dim]Example: 3,38,15[/dim]")
     
     def _step_select_or_create_fieldset(self, asset_type: str = "Laptop") -> Optional[int]:
         """Select or create fieldset for laptop or monitor"""
@@ -436,6 +561,27 @@ class SetupManager:
                 print_error("Failed to create fieldset")
                 return None
         
+        # Smart detection: Find fieldset that matches the asset type by name
+        detected_id = None
+        
+        # For Computer, look for keywords like "PC", "Laptop", "Computer"
+        if asset_type == "Computer":
+            search_terms = ['computer', 'pc', 'laptop', 'all pc']
+        else:
+            search_terms = [asset_type.lower()]
+        
+        for fieldset in fieldsets:
+            fieldset_name = fieldset.get('name', '').lower()
+            fieldset_id = fieldset.get('id')
+            
+            for term in search_terms:
+                if term in fieldset_name and not detected_id:
+                    detected_id = fieldset_id
+                    break
+            
+            if detected_id:
+                break
+        
         # Display available fieldsets
         console.print()
         display_fieldsets_table(fieldsets)
@@ -443,14 +589,24 @@ class SetupManager:
         print_info("Enter a fieldset ID, or type 'new' to create a new fieldset")
         console.print()
         
-        default_id = "1" if asset_type == "Laptop" else "2"
+        # Use detected ID if found, otherwise use defaults
+        if detected_id:
+            default_id = str(detected_id)
+        else:
+            default_id = "1" if asset_type == "Laptop" else "2"
+        
         while True:
             fieldset_id = prompt_input(f"Select {asset_type.lower()} fieldset ID (or 'new')", default=default_id)
             
             # Check if user wants to create new fieldset
             if fieldset_id.lower() == 'new':
                 console.print()
-                default_name = f"{asset_type} Information" if asset_type == "Monitor" else "Computer Assets"
+                if asset_type == "Monitor":
+                    default_name = "Monitor Information"
+                elif asset_type == "Computer":
+                    default_name = "Computer Assets"
+                else:
+                    default_name = f"{asset_type} Information"
                 fieldset_name = prompt_input(f"Enter new {asset_type.lower()} fieldset name", default=default_name)
                 
                 print_info(f"Creating fieldset '{fieldset_name}'...")
@@ -538,8 +694,12 @@ class SetupManager:
         print_info("Asset tag generation options:")
         console.print()
         console.print("[bold]Option 1: Agent-managed auto-increment[/bold]")
-        console.print("  • Agent searches for last tag and increments")
-        console.print("  • Pattern-based (e.g., MIS-2026-N → MIS-2026-0001, MIS-2026-0002...)")
+        console.print("  • Agent searches for last tag and increments automatically")
+        console.print("  • Use '-N' or '_N' as placeholder (will be replaced with number)")
+        console.print("  • Pattern examples:")
+        console.print("    - MIS-2025-N  → MIS-2025-0001, MIS-2025-0002, MIS-2025-0003...")
+        console.print("    - LAPTOP_N    → LAPTOP_0001, LAPTOP_0002, LAPTOP_0003...")
+        console.print("    - IT-N        → IT-0001, IT-0002, IT-0003...")
         console.print()
         console.print("[bold]Option 2: Snipe-IT built-in auto-increment[/bold]")
         console.print("  • Configure in: Settings → Asset Tags → Auto-increment")
@@ -547,6 +707,7 @@ class SetupManager:
         console.print()
         console.print("[bold]Option 3: Use hostname as asset tag[/bold]")
         console.print("  • Asset tag = hostname (e.g., LAMAD0150)")
+        console.print("  • Simple and guaranteed unique")
         console.print()
         console.print("[dim]Note: Asset name will always be the hostname[/dim]")
         console.print()
@@ -558,8 +719,9 @@ class SetupManager:
         
         console.print()
         print_info("Enter your naming pattern:")
-        console.print("  • Use 'N' where the number should go")
-        console.print("  • Examples: MIS-2026-N, LAPTOP-N, IT-2026-N")
+        console.print("  • Use 'N' as placeholder - it will be replaced with auto-increment number")
+        console.print("  • Use '-N' or '_N' for best results (e.g., MIS-2025-N, LAPTOP_N)")
+        console.print("  • The 'N' will become: 0001, 0002, 0003, etc.")
         console.print()
         
         while True:
@@ -573,18 +735,19 @@ class SetupManager:
             
             # Validate pattern contains 'N'
             if 'N' not in pattern:
-                print_error("Pattern must contain 'N' for the auto-increment number")
-                console.print("  Example: MIS-2026-N")
+                print_error("Pattern must contain 'N' as placeholder for the auto-increment number")
+                console.print("  [dim]Examples: MIS-2025-N, LAPTOP_N, IT-N[/dim]")
                 continue
             
             # Validate pattern has only one 'N'
             if pattern.count('N') > 1:
-                print_error("Pattern should contain only one 'N'")
+                print_error("Pattern should contain only one 'N' placeholder")
                 continue
             
             print_ok(f"Pattern configured: {pattern}")
             console.print()
-            console.print(f"[dim]Example tags: {pattern.replace('N', '0001')}, {pattern.replace('N', '0002')}, ...[/dim]")
+            console.print(f"[dim]The 'N' will be replaced with: 0001, 0002, 0003...[/dim]")
+            console.print(f"[dim]Example tags: {pattern.replace('N', '0001')}, {pattern.replace('N', '0002')}, {pattern.replace('N', '0003')}[/dim]")
             return pattern
     
     def _validate_custom_fields(
@@ -600,7 +763,7 @@ class SetupManager:
         Args:
             snipeit_fields: List of fields from Snipe-IT API
             internal_fields: Dict mapping field names to expected db_column prefixes
-            asset_type: "Laptop" or "Monitor" to determine which mapping dict to use
+            asset_type: "Computer", "Laptop", or "Monitor" to determine which mapping dict to use
             
         Returns:
             Dict mapping db_column to validation status
@@ -608,6 +771,7 @@ class SetupManager:
         validation = {}
         
         # Choose the correct field mappings dict
+        # Computer and Laptop use the same field mappings (self.actual_field_mappings)
         field_mappings = self.actual_monitor_field_mappings if asset_type == "Monitor" else self.actual_field_mappings
         
         for field in snipeit_fields:
@@ -660,12 +824,13 @@ class SetupManager:
         Args:
             missing_field_names: List of field names to create
             fieldset_id: ID of the fieldset to assign fields to
-            asset_type: "Laptop" or "Monitor" to determine which field definitions to use
+            asset_type: "Computer", "Laptop", or "Monitor" to determine which field definitions to use
             
         Returns:
             Number of fields successfully created
         """
         # Get appropriate field definitions based on asset type
+        # Computer and Laptop use the same field definitions
         if asset_type == "Monitor":
             internal_fields = get_monitor_field_definitions()
         else:
@@ -785,7 +950,7 @@ class SetupManager:
             return False
     
     def _step_review_and_create_custom_fields(self, fieldset_id: int, asset_type: str = "Laptop") -> bool:
-        """Review, validate, and create custom fields for laptop or monitor"""
+        """Review, validate, and create custom fields for computer or monitor"""
         print_header(f"{asset_type} Custom Fields Setup")
         console.print()
         
@@ -842,40 +1007,45 @@ class SetupManager:
             display_custom_fields_table(fields, validation_results)
             console.print()
         
-        # Check if existing fields need to be associated with this fieldset
-        # Note: /fieldsets/{id}/fields endpoint may not exist in all Snipe-IT versions
-        # So we'll just try to associate all matching fields
+        # Only prompt for field association if there are warnings or missing fields
+        # If all fields are matched correctly, skip the association prompt
+        has_issues = warning_count > 0 or missing_count > 0
         
-        # Find all existing fields that match our requirements
-        fields_to_associate = []
-        for field in fields:
-            field_name = field.get('name')
-            field_id = field.get('id')
-            if field_name in internal_fields:
-                fields_to_associate.append((field_id, field_name))
-        
-        # Offer to associate existing fields
-        if fields_to_associate:
-            console.print()
-            print_info(f"Found {len(fields_to_associate)} existing fields to associate with fieldset #{fieldset_id}:")
-            for _, fname in fields_to_associate:
-                console.print(f"  • {fname}")
-            console.print()
+        if has_issues:
+            # Find all existing fields that match our requirements
+            fields_to_associate = []
+            for field in fields:
+                field_name = field.get('name')
+                field_id = field.get('id')
+                if field_name in internal_fields:
+                    fields_to_associate.append((field_id, field_name))
             
-            if prompt_yes_no(f"Associate these fields with fieldset #{fieldset_id}?", default=True):
+            # Offer to associate existing fields
+            if fields_to_associate:
                 console.print()
-                print_info("Associating fields with fieldset...")
-                console.print("(Note: Fields already in the fieldset will be skipped)")
+                asset_types_msg = "all computer categories (Laptop, Desktop, Server)" if asset_type == "Laptop" else "Monitor category"
+                print_info(f"Found {len(fields_to_associate)} existing fields for {asset_types_msg}:")
+                for _, fname in fields_to_associate:
+                    console.print(f"  • {fname}")
                 console.print()
-                associated_count = 0
-                for field_id, field_name in fields_to_associate:
-                    print_info(f"Associating '{field_name}'...")
-                    if self._associate_field_with_fieldset(field_id, fieldset_id, field_name):
-                        associated_count += 1
                 
-                console.print()
-                if associated_count > 0:
-                    print_ok(f"Successfully associated {associated_count}/{len(fields_to_associate)} fields")
+                if prompt_yes_no(f"Associate these fields with fieldset #{fieldset_id}?", default=True):
+                    console.print()
+                    print_info(f"Associating fields with fieldset for {asset_types_msg}...")
+                    console.print("(Note: Fields already in the fieldset will be skipped)")
+                    console.print()
+                    associated_count = 0
+                    for field_id, field_name in fields_to_associate:
+                        print_info(f"Associating '{field_name}'...")
+                        if self._associate_field_with_fieldset(field_id, fieldset_id, field_name):
+                            associated_count += 1
+                    
+                    console.print()
+                    if associated_count > 0:
+                        print_ok(f"Successfully associated {associated_count}/{len(fields_to_associate)} fields")
+        else:
+            # All fields matched perfectly - silently skip association prompt
+            print_ok(f"All {asset_type.lower()} fields validated successfully!")
         
         # Show missing fields
         if missing_fields:
@@ -987,7 +1157,9 @@ class SetupManager:
     def _step_generate_config(
         self, 
         company_id: int, 
-        laptop_category_id: int, 
+        laptop_category_id: int,
+        desktop_category_id: int,
+        server_category_id: int,
         laptop_fieldset_id: int,
         monitor_category_id: int,
         monitor_fieldset_id: int,
@@ -1030,8 +1202,10 @@ class SetupManager:
             config['defaults']['company_id'] = company_id
             config['defaults']['status_id'] = status_id
             
-            # Laptop-specific settings
+            # Computer-specific settings (laptop, desktop, and server)
             config['defaults']['laptop_category_id'] = laptop_category_id
+            config['defaults']['desktop_category_id'] = desktop_category_id
+            config['defaults']['server_category_id'] = server_category_id
             config['defaults']['laptop_fieldset_id'] = laptop_fieldset_id
             
             # Monitor-specific settings
@@ -1044,10 +1218,10 @@ class SetupManager:
             # Update db_columns with actual values from Snipe-IT
             total_mappings = len(self.actual_field_mappings) + len(self.actual_monitor_field_mappings)
             if total_mappings > 0:
-                print_info("Updating custom fields with actual db_column names...")
+                print_info("Mapping custom fields to configuration...")
                 self._update_config_with_actual_fields(config)
-                print_ok(f"Updated {len(self.actual_field_mappings)} laptop field mappings")
-                print_ok(f"Updated {len(self.actual_monitor_field_mappings)} monitor field mappings")
+                print_ok(f"Mapped {len(self.actual_field_mappings)} computer field(s)")
+                print_ok(f"Mapped {len(self.actual_monitor_field_mappings)} monitor field(s)")
             
             # Save configuration
             self.config_manager.save(config)
