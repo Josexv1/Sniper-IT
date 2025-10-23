@@ -6,7 +6,8 @@ Handles laptop/desktop asset operations in Snipe-IT
 import re
 from typing import Dict, Any, Optional
 from core.api_client import SnipeITClient
-from cli.formatters import print_info, print_error, print_warning, console
+from cli.formatters import (print_info, print_error, print_warning, console,
+                             print_section, print_step, print_subsection)
 from core.constants import STATUS_OK, STATUS_ERROR, STATUS_WARNING, STATUS_INFO
 from utils.exceptions import APIError
 from utils.logger import get_logger
@@ -80,10 +81,6 @@ class AssetManager:
         Returns:
             Dictionary with processing results or None if failed
         """
-        self.logger.verbose("")
-        self.logger.verbose(f"{STATUS_INFO} Processing computer asset (laptop/desktop/server)...")
-        self.logger.verbose("=" * 70)
-        
         try:
             # Extract data
             asset_data = system_data['system_data']
@@ -98,26 +95,29 @@ class AssetManager:
             # Capitalize for display
             asset_type_display = asset_type.capitalize()
             
-            self.logger.verbose(f"{STATUS_INFO} Asset Type: {asset_type_display}")
-            self.logger.verbose(f"{STATUS_INFO} Hostname: {hostname}")
-            self.logger.verbose(f"{STATUS_INFO} Manufacturer: {manufacturer}")
-            self.logger.verbose(f"{STATUS_INFO} Model: {model}")
-            self.logger.verbose(f"{STATUS_INFO} Serial: {serial}")
+            # Show section header
+            print_section(f"SYNCING {asset_type_display.upper()} ASSET")
             
             # Check if serial is valid (not a placeholder)
             is_serial_valid = self._is_serial_valid(serial)
-            if not is_serial_valid:
-                self.logger.verbose(f"{STATUS_WARNING} Serial appears to be placeholder/invalid")
             
-            self.logger.verbose("")
+            # Show basic info only in debug mode (-vv)
+            if self.logger.verbosity >= 2:
+                console.print(f"  [dim]Hostname:[/dim] {hostname}")
+                console.print(f"  [dim]Manufacturer:[/dim] {manufacturer}")
+                console.print(f"  [dim]Model:[/dim] {model}")
+                console.print(f"  [dim]Serial:[/dim] {serial}")
+                if not is_serial_valid:
+                    console.print(f"  [yellow]⚠ Serial appears invalid, will use hostname as serial[/yellow]")
             
             # Step 1: Find or create manufacturer
-            self.logger.verbose(f"{STATUS_INFO} Processing manufacturer: {manufacturer}")
+            self.logger.debug("")
+            print_step(f"Processing manufacturer: {manufacturer}", "processing")
             manufacturer_id = self.api.find_or_create_manufacturer(manufacturer)
-            self.logger.verbose(f"{STATUS_OK} Manufacturer ID: {manufacturer_id}")
+            self.logger.debug(f"  [green]✓[/green] Manufacturer ID: {manufacturer_id}")
             
             # Step 2: Find or create model (using appropriate category based on asset type)
-            self.logger.verbose(f"{STATUS_INFO} Processing model: {model}")
+            print_step(f"Processing model: {model}", "processing")
             
             # Select category based on asset type
             if asset_type == 'laptop':
@@ -127,7 +127,7 @@ class AssetManager:
             else:  # desktop
                 category_id = self.defaults.get('desktop_category_id', 3)
             
-            self.logger.verbose(f"{STATUS_INFO} Using category ID: {category_id} ({asset_type_display})")
+            self.logger.debug(f"    Using category ID: {category_id} ({asset_type_display})")
             
             # Check if model exists to detect category changes
             existing_model_id = self.api.find_model_by_name(model, manufacturer_id)
@@ -138,10 +138,7 @@ class AssetManager:
                     existing_category_name = existing_model.get('category', {}).get('name', 'Unknown')
                     
                     if existing_category_id != category_id:
-                        self.logger.verbose(f"{STATUS_INFO} Model category mismatch detected:")
-                        self.logger.verbose(f"    Current: {existing_category_name} (ID: {existing_category_id})")
-                        self.logger.verbose(f"    Expected: {asset_type_display} (ID: {category_id})")
-                        self.logger.verbose(f"{STATUS_INFO} Updating model category to {asset_type_display}...")
+                        self.logger.debug(f"    [yellow]Category mismatch:[/yellow] {existing_category_name} → {asset_type_display}")
                 except Exception:
                     pass
             
@@ -152,20 +149,19 @@ class AssetManager:
                 category_id=category_id,
                 fieldset_id=self.defaults.get('laptop_fieldset_id', 1)
             )
-            self.logger.verbose(f"{STATUS_OK} Model ID: {model_id}")
+            self.logger.debug(f"  [green]✓[/green] Model ID: {model_id}")
             
             # Step 3: Check if asset exists
             # For desktops with invalid serials, search by hostname
             # For laptops and desktops with valid serials, search by hostname (serial is secondary)
-            self.logger.verbose(f"{STATUS_INFO} Searching for existing asset: {hostname}")
+            print_step(f"Searching for existing asset: {hostname}", "processing")
             existing_asset_id = self.api.find_hardware_by_hostname(hostname)
             
             # Step 4: Prepare payload
             # Use hostname as serial for assets with invalid serials (mostly desktops)
             # This ensures uniqueness since all machines are domain-joined
             effective_serial = serial if is_serial_valid else hostname
-            if not is_serial_valid:
-                self.logger.verbose(f"{STATUS_INFO} Using hostname as serial for uniqueness: {hostname}")
+            self.logger.debug(f"    Effective serial: {effective_serial}")
             
             payload = {
                 'name': hostname,
@@ -181,7 +177,7 @@ class AssetManager:
             
             # Step 5: Create or update asset
             if existing_asset_id:
-                self.logger.verbose(f"{STATUS_OK} Found existing asset ID: {existing_asset_id}")
+                self.logger.debug(f"  [green]✓[/green] Found existing asset ID: {existing_asset_id}")
                 
                 # Get existing data to check category and asset tag
                 existing_data = self.api.get_hardware_by_id(existing_asset_id)
@@ -193,58 +189,49 @@ class AssetManager:
                 
                 # Check if asset is in wrong category
                 if existing_category_id and existing_category_id != category_id:
-                    self.logger.verbose(f"{STATUS_WARNING} Asset found in incorrect category!")
-                    self.logger.verbose(f"    Current category: {existing_category_name} (ID: {existing_category_id})")
-                    self.logger.verbose(f"    Expected category: {asset_type_display} (ID: {category_id})")
-                    self.logger.verbose(f"{STATUS_INFO} Updating asset to correct category...")
+                    self.logger.debug(f"    [yellow]Wrong category:[/yellow] {existing_category_name} → {asset_type_display}")
                 
                 # Preserve existing asset tag if it matches naming convention, otherwise generate new one
                 payload['asset_tag'] = self._generate_or_preserve_asset_tag(hostname, existing_asset_tag)
-                self.logger.verbose(f"{STATUS_INFO} Asset tag: {payload['asset_tag']}")
+                self.logger.debug(f"    Asset tag: {payload['asset_tag']}")
                 
                 # Track changes between existing and new data
                 changes = self._detect_changes(existing_data, payload, model_id)
                 
                 if not changes:
-                    self.logger.verbose(f"{STATUS_OK} No changes detected - asset is already up to date")
+                    print_step(f"Asset up to date (ID: {existing_asset_id})", "ok")
                     asset_id = existing_asset_id
                 else:
-                    self.logger.verbose(f"{STATUS_INFO} Detected {len(changes)} change(s)")
+                    print_step(f"Updating asset with {len(changes)} change(s)", "processing")
                     for change in changes:
                         self.logger.debug(f"    • {change}")
                     
-                    self.logger.verbose(f"{STATUS_INFO} Updating asset...")
                     result = self.api.update_hardware(existing_asset_id, payload)
                     
                     if result.get('status') == 'success':
-                        self.logger.verbose(f"{STATUS_OK} Asset updated successfully")
+                        print_step(f"Asset updated successfully (ID: {existing_asset_id})", "ok")
                         asset_id = existing_asset_id
                     else:
                         print_error(f"Update failed: {result.get('messages', 'Unknown error')}")
                         return None
             else:
-                self.logger.verbose(f"{STATUS_INFO} No existing asset found - creating new")
+                self.logger.debug(f"  [cyan]ℹ[/cyan] No existing asset found")
                 # Generate asset tag based on naming convention
                 payload['asset_tag'] = self._generate_asset_tag(hostname)
-                self.logger.verbose(f"{STATUS_INFO} Generated asset tag: {payload['asset_tag']}")
+                self.logger.debug(f"    Generated asset tag: {payload['asset_tag']}")
                 
+                print_step("Creating new asset", "processing")
                 result = self.api.create_hardware(payload)
                 
                 if result.get('status') == 'success':
                     asset_id = result['payload']['id']
-                    self.logger.verbose(f"{STATUS_OK} Asset created successfully (ID: {asset_id})")
+                    print_step(f"Asset created successfully (ID: {asset_id})", "ok")
                 else:
                     print_error(f"Creation failed: {result.get('messages', 'Unknown error')}")
                     return None
             
             # Step 6: Verify the asset
-            self.logger.verbose(f"{STATUS_INFO} Verifying asset data...")
             verification = self._verify_asset(asset_id)
-            
-            self.logger.verbose("")
-            self.logger.verbose("=" * 70)
-            self.logger.verbose(f"{STATUS_OK} {asset_type_display} asset processing completed")
-            self.logger.verbose("")
             
             # Determine action and changes
             if existing_asset_id:
@@ -296,7 +283,7 @@ class AssetManager:
             
             success_rate = (populated_count / total_count * 100) if total_count > 0 else 0
             
-            self.logger.verbose(f"{STATUS_INFO} Custom fields: {populated_count}/{total_count} populated ({success_rate:.1f}%)")
+            self.logger.debug(f"    Custom fields: {populated_count}/{total_count} populated ({success_rate:.1f}%)")
             
             return {
                 'asset_id': asset_id,
@@ -307,7 +294,7 @@ class AssetManager:
             }
             
         except Exception as e:
-            self.logger.verbose(f"{STATUS_WARNING} Verification warning: {e}")
+            self.logger.debug(f"    [yellow]Verification warning:[/yellow] {e}")
             return {
                 'asset_id': asset_id,
                 'error': str(e)

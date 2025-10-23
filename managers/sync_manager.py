@@ -13,7 +13,9 @@ from collectors.system_collector import SystemDataCollector
 from collectors.monitor_collector import MonitorCollector
 from managers.asset_manager import AssetManager
 from managers.monitor_manager import MonitorManager
-from cli.formatters import console, print_header, print_info, print_error, print_warning, spinner
+from cli.formatters import (console, print_header, print_info, print_error, print_warning, spinner,
+                             print_section, print_box_header, print_box_item, print_box_footer, 
+                             print_step, print_subsection)
 from core.constants import STATUS_OK, STATUS_ERROR, STATUS_WARNING, STATUS_INFO, APPLICATION_NAME, VERSION
 from utils.exceptions import ConfigurationError, DataCollectionError, APIError
 from utils.logger import get_logger
@@ -152,34 +154,35 @@ class SyncManager:
         Returns:
             System data dictionary or None if failed
         """
-        self.logger.quiet("")
-        
         try:
             # Show spinner for quiet mode, detailed output for verbose
             if self.verbosity == 0:
-                with spinner("🔍 Collecting system data...", "dots"):
+                with spinner("Collecting system data...", "dots"):
                     collector = SystemDataCollector(self.config)
                     system_data = collector.collect_all()
+                self.logger.quiet(f"{STATUS_OK} System data collected")
             else:
-                self.logger.verbose(f"{STATUS_INFO} Collecting system data...")
-                self.logger.verbose("=" * 70)
+                print_section("COLLECTING SYSTEM DATA")
                 collector = SystemDataCollector(self.config)
                 system_data = collector.collect_all()
-            
-            # Display summary
-            hostname = system_data['system_data'].get('hostname', 'Unknown')
-            manufacturer = system_data['system_data'].get('manufacturer', 'Unknown')
-            model = system_data['system_data'].get('model', 'Unknown')
-            serial = system_data['system_data'].get('serial_number', 'Unknown')
-            os_type = system_data.get('os_type', 'Unknown')
-            
-            self.logger.quiet(f"{STATUS_OK} System data collected")
-            self.logger.verbose(f"    Hostname: {hostname}")
-            self.logger.verbose(f"    Manufacturer: {manufacturer}")
-            self.logger.verbose(f"    Model: {model}")
-            self.logger.verbose(f"    Serial: {serial}")
-            self.logger.verbose(f"    OS: {os_type}")
-            self.logger.debug(f"    Custom Fields: {len(system_data['custom_fields'])} fields collected")
+                
+                # Display collected data based on verbosity
+                hostname = system_data['system_data'].get('hostname', 'Unknown')
+                manufacturer = system_data['system_data'].get('manufacturer', 'Unknown')
+                model = system_data['system_data'].get('model', 'Unknown')
+                serial = system_data['system_data'].get('serial_number', 'Unknown')
+                os_type = system_data.get('os_type', 'Unknown')
+                asset_type = system_data.get('asset_type', 'desktop').capitalize()
+                
+                print_box_header("Computer Information")
+                print_box_item("Asset Type", asset_type)
+                print_box_item("Hostname", hostname)
+                print_box_item("Manufacturer", manufacturer)
+                print_box_item("Model", model)
+                print_box_item("Serial", serial)
+                print_box_item("OS", os_type)
+                self.logger.debug(f"[dim]│ [/dim][cyan]Custom Fields:[/cyan] {len(system_data['custom_fields'])} collected")
+                print_box_footer()
             
             return system_data
             
@@ -197,27 +200,32 @@ class SyncManager:
         Returns:
             List of monitor data dictionaries (empty if none found)
         """
-        self.logger.quiet("")
-        
         try:
             # Show spinner for quiet mode, detailed output for verbose
             if self.verbosity == 0:
-                with spinner("🖥️  Collecting monitor data...", "dots"):
+                with spinner("Collecting monitor data...", "dots"):
                     collector = MonitorCollector(self.config)
                     monitors = collector.collect_monitors()
+                self.logger.quiet(f"{STATUS_OK} Found {len(monitors)} external monitor(s)" if monitors else f"{STATUS_INFO} No external monitors detected")
             else:
-                self.logger.verbose(f"{STATUS_INFO} Collecting monitor data...")
-                self.logger.verbose("=" * 70)
+                print_section("COLLECTING MONITOR DATA")
                 collector = MonitorCollector(self.config)
                 monitors = collector.collect_monitors()
-            
-            if monitors:
-                self.logger.quiet(f"{STATUS_OK} Found {len(monitors)} external monitor(s)")
-                for i, monitor in enumerate(monitors, start=1):
-                    self.logger.verbose(f"    Monitor {i}: {monitor.get('manufacturer', 'Unknown')} {monitor.get('model', 'Unknown')}")
-            else:
-                self.logger.verbose(f"{STATUS_INFO} No external monitors detected")
-                self.logger.debug("    (Internal laptop displays are automatically excluded)")
+                
+                if monitors:
+                    print_box_header(f"External Monitors ({len(monitors)} found)")
+                    for i, monitor in enumerate(monitors, start=1):
+                        manufacturer = monitor.get('manufacturer', 'Unknown')
+                        model = monitor.get('model', 'Unknown')
+                        serial = monitor.get('serial_number', '')
+                        resolution = monitor.get('resolution', 'N/A')
+                        console.print(f"[dim]│ [/dim][bold cyan]Monitor {i}:[/bold cyan] {manufacturer} {model}")
+                        if self.verbosity >= 2:
+                            console.print(f"[dim]│   [/dim][dim]Serial:[/dim] {serial if serial else '(empty)'}")
+                            console.print(f"[dim]│   [/dim][dim]Resolution:[/dim] {resolution}")
+                    print_box_footer()
+                else:
+                    print_step("No external monitors detected", "info")
             
             return monitors
             
@@ -272,7 +280,7 @@ class SyncManager:
         # Step 5: Process computer asset (laptop/desktop/server)
         self.logger.quiet("")
         if self.verbosity == 0:
-            with spinner("💻 Syncing computer asset to Snipe-IT...", "dots"):
+            with spinner("Syncing computer asset to Snipe-IT...", "dots"):
                 asset_result = self.asset_manager.process_asset(system_data)
         else:
             asset_result = self.asset_manager.process_asset(system_data)
@@ -288,7 +296,7 @@ class SyncManager:
         if monitors:
             self.logger.quiet("")
             if self.verbosity == 0:
-                with spinner("🖥️  Syncing monitors to Snipe-IT...", "dots"):
+                with spinner("Syncing monitors to Snipe-IT...", "dots"):
                     monitor_results = self.monitor_manager.process_monitors(
                         monitors, 
                         parent_hostname,
@@ -368,60 +376,63 @@ class SyncManager:
         """Display final synchronization summary"""
         elapsed = (datetime.now() - start_time).total_seconds()
         
+        # Determine overall status
+        action = asset_result.get('action', 'N/A')
+        if action == 'created':
+            status_text = "CREATED"
+        elif action == 'updated':
+            status_text = "UPDATED"
+        else:
+            status_text = "UP TO DATE"
+        
         console.print()
-        console.print("=" * 70)
-        console.print(f"{STATUS_OK} SYNCHRONIZATION COMPLETE")
-        console.print("=" * 70)
+        console.print(f"[bold green]{'═' * 70}[/bold green]")
+        console.print(f"[bold green]  SYNCHRONIZATION COMPLETE - {status_text}[/bold green]")
+        console.print(f"[bold green]{'═' * 70}[/bold green]")
         
         # Computer asset summary
-        console.print()
-        console.print("[bold cyan]Computer Asset:[/bold cyan]")
-        console.print(f"  Asset ID:       {asset_result.get('asset_id', 'N/A')}")
-        console.print(f"  Hostname:       {asset_result.get('hostname', 'N/A')}")
-        
-        action = asset_result.get('action', 'N/A')
-        if action == 'no_change':
-            console.print(f"  Action:         NO CHANGES (already up to date)")
-        else:
-            console.print(f"  Action:         {action.upper()}")
+        print_box_header("Computer Asset")
+        print_box_item("Asset ID", str(asset_result.get('asset_id', 'N/A')))
+        print_box_item("Hostname", asset_result.get('hostname', 'N/A'))
+        print_box_item("Status", status_text)
         
         # Show what changed if updated
         changes = asset_result.get('changes')
         if changes and len(changes) > 0:
-            console.print(f"  Changes:")
+            console.print(f"[dim]│ [/dim][cyan]Changes:[/cyan]")
             for change in changes:
-                console.print(f"    • {change}")
+                console.print(f"[dim]│   [/dim][dim]• {change}[/dim]")
         
         verification = asset_result.get('verification', {})
         if verification:
-            console.print(f"  Custom Fields:  {verification.get('populated_fields', 0)}/{verification.get('total_fields', 0)} populated")
+            populated = verification.get('populated_fields', 0)
+            total = verification.get('total_fields', 0)
+            percentage = f"({populated/total*100:.0f}%)" if total > 0 else ""
+            print_box_item("Custom Fields", f"{populated}/{total} populated {percentage}")
+        print_box_footer()
         
         # Monitor summary
         if monitor_results:
-            console.print()
-            console.print(f"[bold cyan]Monitor Assets ({len(monitor_results)}):[/bold cyan]")
+            print_box_header(f"Monitor Assets ({len(monitor_results)} total)")
             for i, result in enumerate(monitor_results, start=1):
-                console.print(f"  Monitor {i}:")
-                console.print(f"    Asset ID:     {result.get('asset_id', 'N/A')}")
-                console.print(f"    Name:         {result.get('name', 'N/A')}")
-                
-                # Handle action display
-                action = result.get('action', 'N/A')
-                if action == 'no_change':
-                    console.print(f"    Action:       NO CHANGES (already up to date)")
+                mon_action = result.get('action', 'N/A')
+                if mon_action == 'created':
+                    mon_status = "[green]CREATED[/green]"
+                elif mon_action == 'updated':
+                    mon_status = "[yellow]UPDATED[/yellow]"
                 else:
-                    console.print(f"    Action:       {action.upper()}")
+                    mon_status = "[dim]UP TO DATE[/dim]"
+                
+                console.print(f"[dim]│ [/dim][bold cyan]Monitor {i}:[/bold cyan] {result.get('name', 'N/A')}")
+                console.print(f"[dim]│   [/dim][dim]Asset ID:[/dim] {result.get('asset_id', 'N/A')}")
+                console.print(f"[dim]│   [/dim][dim]Status:[/dim] {mon_status}")
                 
                 if result.get('checked_out_to_user'):
                     user_name = result.get('checked_out_to_user_name', f"User #{result.get('checked_out_to_user')}")
-                    console.print(f"    Checked Out:  Yes (to {user_name})")
-                else:
-                    console.print(f"    Checked Out:  No")
+                    console.print(f"[dim]│   [/dim][dim]Checked Out:[/dim] {user_name}")
+            print_box_footer()
         
-        console.print()
-        console.print(f"Elapsed Time: {elapsed:.2f} seconds")
-        console.print("=" * 70)
-        console.print()
+        console.print(f"\n[dim]Completed in {elapsed:.2f}s[/dim]\n")
 
 
 def run_sync(test_mode: bool = False, verify_ssl: bool = True, 

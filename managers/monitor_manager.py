@@ -6,7 +6,8 @@ Handles monitor asset operations in Snipe-IT
 import re
 from typing import Dict, Any, Optional, List
 from core.api_client import SnipeITClient
-from cli.formatters import print_info, print_error, print_warning, console
+from cli.formatters import (print_info, print_error, print_warning, console,
+                             print_section, print_step, print_subsection)
 from core.constants import STATUS_OK, STATUS_ERROR, STATUS_WARNING, STATUS_INFO
 from utils.exceptions import APIError
 from utils.logger import get_logger
@@ -108,30 +109,22 @@ class MonitorManager:
             List of processing results or None if failed
         """
         if not monitors:
-            self.logger.verbose(f"{STATUS_INFO} No external monitors detected")
             return []
         
-        self.logger.verbose("")
-        self.logger.verbose(f"{STATUS_INFO} Processing {len(monitors)} monitor(s)...")
-        self.logger.verbose("=" * 70)
+        print_section(f"SYNCING MONITORS ({len(monitors)} total)")
         
         results = []
         
         for i, monitor_data in enumerate(monitors, start=1):
-            self.logger.verbose(f"\n{STATUS_INFO} Processing Monitor {i}/{len(monitors)}")
-            self.logger.verbose("-" * 70)
+            if self.logger.verbosity >= 2:
+                print_subsection(f"Monitor {i}/{len(monitors)}")
             
             result = self._process_single_monitor(monitor_data, i, parent_hostname, parent_asset_id)
             
             if result:
                 results.append(result)
             else:
-                self.logger.verbose(f"{STATUS_WARNING} Monitor {i} processing had issues")
-        
-        self.logger.verbose("")
-        self.logger.verbose("=" * 70)
-        self.logger.verbose(f"{STATUS_OK} Monitor processing completed: {len(results)}/{len(monitors)} successful")
-        self.logger.verbose("")
+                self.logger.verbose(f"  [yellow]⚠[/yellow] Monitor {i} processing had issues")
         
         return results
     
@@ -157,21 +150,22 @@ class MonitorManager:
             serial = monitor_data.get('serial_number', '')
             resolution = monitor_data.get('resolution', 'N/A')
             
-            self.logger.verbose(f"  Manufacturer: {manufacturer}")
-            self.logger.verbose(f"  Model: {model}")
-            self.logger.verbose(f"  Serial: {serial if serial else '(empty)'}")
-            self.logger.verbose(f"  Resolution: {resolution}")
-            
             # Generate monitor name
             monitor_name = self._generate_monitor_name(monitor_data, index)
             
+            # Show basic info only in debug mode (-vv)
+            if self.logger.verbosity >= 2:
+                console.print(f"  [dim]Name:[/dim] {monitor_name}")
+                console.print(f"  [dim]Serial:[/dim] {serial if serial else '(empty)'}")
+                console.print(f"  [dim]Resolution:[/dim] {resolution}")
+            
             # Step 1: Find or create manufacturer
-            self.logger.verbose(f"  {STATUS_INFO} Processing manufacturer...")
+            self.logger.debug("")
+            print_step(f"Processing {manufacturer} {model}", "processing")
             manufacturer_id = self.api.find_or_create_manufacturer(manufacturer)
-            self.logger.verbose(f"  {STATUS_OK} Manufacturer ID: {manufacturer_id}")
+            self.logger.debug(f"    Manufacturer ID: {manufacturer_id}")
             
             # Step 2: Find or create model
-            self.logger.verbose(f"  {STATUS_INFO} Processing model...")
             model_id = self.api.find_or_create_model(
                 name=model,
                 model_number=model,
@@ -179,7 +173,7 @@ class MonitorManager:
                 category_id=self.defaults.get('monitor_category_id', 5),
                 fieldset_id=self.defaults.get('monitor_fieldset_id', 2)
             )
-            self.logger.verbose(f"  {STATUS_OK} Model ID: {model_id}")
+            self.logger.debug(f"    Model ID: {model_id}")
             
             # Step 3: Search for existing monitor
             # Search by serial if available, otherwise by name
@@ -216,7 +210,7 @@ class MonitorManager:
             
             # Step 5: Create or update asset
             if existing_asset_id:
-                self.logger.verbose(f"  {STATUS_OK} Found existing monitor ID: {existing_asset_id}")
+                self.logger.debug(f"    Found existing monitor ID: {existing_asset_id}")
                 
                 # Get existing data to preserve asset_tag and detect changes
                 existing_data = self.api.get_hardware_by_id(existing_asset_id)
@@ -224,45 +218,37 @@ class MonitorManager:
                 
                 # Generate or preserve asset tag based on naming convention
                 payload['asset_tag'] = self._generate_or_preserve_monitor_asset_tag(serial, existing_tag)
-                self.logger.verbose(f"  {STATUS_INFO} Preserving asset tag: {payload['asset_tag']}")
+                self.logger.debug(f"    Asset tag: {payload['asset_tag']}")
                 
                 # Check if update is needed
                 has_changes = self._detect_monitor_changes(existing_data, payload, model_id)
                 
                 if not has_changes:
-                    self.logger.verbose(f"  {STATUS_OK} No changes detected - monitor is already up to date")
+                    print_step(f"Monitor up to date (ID: {existing_asset_id})", "ok")
                     asset_id = existing_asset_id
                     action = 'no_change'
                 else:
-                    self.logger.verbose(f"  {STATUS_INFO} Changes detected - updating monitor...")
+                    print_step(f"Updating monitor (ID: {existing_asset_id})", "processing")
                     result = self.api.update_hardware(existing_asset_id, payload)
                     
                     if result.get('status') == 'success':
-                        self.logger.verbose(f"  {STATUS_OK} Monitor updated successfully")
+                        self.logger.debug(f"    [green]✓[/green] Monitor updated")
                         asset_id = existing_asset_id
                         action = 'updated'
-                        
-                        # Verify asset tag was preserved
-                        updated_data = self.api.get_hardware_by_id(asset_id)
-                        updated_tag = updated_data.get('asset_tag', '')
-                        if updated_tag and updated_tag != existing_tag:
-                            self.logger.verbose(f"  {STATUS_WARNING} Asset tag changed: {existing_tag} -> {updated_tag}")
-                        elif updated_tag:
-                            self.logger.verbose(f"  {STATUS_OK} Asset tag verified: {updated_tag}")
                     else:
                         print_error(f"Update failed: {result.get('messages', 'Unknown error')}")
                         return None
             else:
-                self.logger.verbose(f"  {STATUS_INFO} Creating new monitor...")
                 # Generate asset tag based on naming convention
                 payload['asset_tag'] = self._generate_monitor_asset_tag(serial)
-                self.logger.verbose(f"  {STATUS_INFO} Generated asset tag: {payload['asset_tag']}")
+                self.logger.debug(f"    Generated asset tag: {payload['asset_tag']}")
                 
+                print_step("Creating new monitor", "processing")
                 result = self.api.create_hardware(payload)
                 
                 if result.get('status') == 'success':
                     asset_id = result['payload']['id']
-                    self.logger.verbose(f"  {STATUS_OK} Monitor created (ID: {asset_id})")
+                    self.logger.debug(f"    [green]✓[/green] Monitor created (ID: {asset_id})")
                     action = 'created'
                 else:
                     print_error(f"Creation failed: {result.get('messages', 'Unknown error')}")
@@ -274,7 +260,6 @@ class MonitorManager:
             if parent_asset_id:
                 try:
                     # Get parent asset details to find the assigned user
-                    self.logger.verbose(f"  {STATUS_INFO} Retrieving parent asset details...")
                     parent_asset = self.api.get_hardware_by_id(parent_asset_id)
                     
                     # Check if parent asset is assigned to a user
@@ -293,23 +278,19 @@ class MonitorManager:
                             current_user_id = monitor_assigned_to.get('id')
                             if current_user_id == assigned_user_id:
                                 already_correct = True
-                                self.logger.verbose(f"  {STATUS_INFO} Monitor already checked out to correct user: {assigned_user_name}")
+                                self.logger.debug(f"    Already checked out to: {assigned_user_name}")
                         
                         # Only perform checkout if not already correct
                         if not already_correct:
                             # Check in first if currently checked out to someone else
                             if monitor_assigned_to:
-                                self.logger.verbose(f"  {STATUS_INFO} Monitor checked out to different user - checking in first...")
+                                self.logger.debug(f"    Checking in from previous user...")
                                 checkin_result = self.api.checkin_hardware(
                                     asset_id=asset_id,
                                     note="Auto-checkin before reassignment"
                                 )
-                                if checkin_result.get('status') == 'success':
-                                    self.logger.verbose(f"  {STATUS_OK} Monitor checked in successfully")
-                                else:
-                                    self.logger.verbose(f"  {STATUS_WARNING} Checkin warning: {checkin_result.get('messages', 'Unknown')}")
                             
-                            self.logger.verbose(f"  {STATUS_INFO} Checking out monitor to user: {assigned_user_name}...")
+                            print_step(f"Checking out to {assigned_user_name}", "processing")
                             
                             # Create note with device connection info
                             checkout_note = f"Connected to {parent_hostname} (Asset #{parent_asset_id})"
@@ -323,17 +304,14 @@ class MonitorManager:
                             )
                             
                             if checkout_result.get('status') == 'success':
-                                self.logger.verbose(f"  {STATUS_OK} Monitor checked out to user: {assigned_user_name}")
-                                self.logger.verbose(f"  {STATUS_INFO} Checkout note added: '{checkout_note}'")
-                                self.logger.verbose(f"  {STATUS_INFO} (View in Snipe-IT History tab for this asset)")
+                                self.logger.debug(f"    [green]✓[/green] Checked out to {assigned_user_name}")
                             else:
-                                self.logger.verbose(f"  {STATUS_WARNING} Checkout warning: {checkout_result.get('messages', 'Unknown')}")
+                                self.logger.debug(f"    [yellow]⚠[/yellow] Checkout warning: {checkout_result.get('messages', 'Unknown')}")
                     else:
-                        self.logger.verbose(f"  {STATUS_WARNING} Parent asset not assigned to a user - skipping checkout")
-                        self.logger.verbose(f"  {STATUS_INFO} Note: Monitor will remain unassigned until parent is assigned to a user")
+                        self.logger.debug(f"    [yellow]⚠[/yellow] Parent asset not assigned to a user")
                         
                 except Exception as e:
-                    self.logger.verbose(f"  {STATUS_WARNING} Checkout failed: {e}")
+                    self.logger.debug(f"    [yellow]⚠[/yellow] Checkout failed: {e}")
             
             return {
                 'asset_id': asset_id,

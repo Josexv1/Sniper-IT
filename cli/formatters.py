@@ -315,3 +315,64 @@ def spinner(text: str = "Loading...", spinner_style: str = "dots"):
     """
     with Live(Spinner(spinner_style, text=text, style="cyan"), console=console, refresh_per_second=10):
         yield
+
+
+def print_section(title: str, icon: str = "") -> None:
+    """
+    Print a modern section header with optional icon
+    
+    Args:
+        title: Section title
+        icon: Optional icon to display before title
+    """
+    if icon:
+        console.print(f"\n[bold cyan]{icon} {title}[/bold cyan]")
+    else:
+        console.print(f"\n[bold cyan]{title}[/bold cyan]")
+
+
+def print_box_header(title: str) -> None:
+    """Print a clean box header"""
+    console.print(f"\n[dim]╭─[/dim] [bold]{title}[/bold]")
+
+
+def print_box_item(label: str, value: str, indent: int = 1) -> None:
+    """
+    Print a key-value item inside a box
+    
+    Args:
+        label: Item label
+        value: Item value
+        indent: Indentation level
+    """
+    prefix = "│ " * indent
+    console.print(f"[dim]{prefix}[/dim][cyan]{label}:[/cyan] {value}")
+
+
+def print_box_footer() -> None:
+    """Print a clean box footer"""
+    console.print(f"[dim]╰─────[/dim]")
+
+
+def print_step(message: str, status: str = "info") -> None:
+    """
+    Print a processing step with status indicator
+    
+    Args:
+        message: Step message
+        status: Status type (info, ok, warning, error, processing)
+    """
+    icons = {
+        "info": "[cyan]ℹ[/cyan]",
+        "ok": "[green]✓[/green]",
+        "warning": "[yellow]⚠[/yellow]",
+        "error": "[red]✗[/red]",
+        "processing": "[cyan]⋯[/cyan]"
+    }
+    icon = icons.get(status, icons["info"])
+    console.print(f"  {icon} {message}")
+
+
+def print_subsection(title: str) -> None:
+    """Print a subsection title"""
+    console.print(f"\n  [bold dim]─── {title} ───[/bold dim]")
