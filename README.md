@@ -1,6 +1,6 @@
 # Sniper-IT Agent
 
-**Version 2.2.8**
+**Version 2.2.9**
 
 Automated asset management agent for Snipe-IT. Automatically collects laptop/desktop and monitor information, then synchronizes it to your Snipe-IT server.
 
@@ -21,6 +21,11 @@ Automated asset management agent for Snipe-IT. Automatically collects laptop/des
   - Smart monitor checkout to assigned user
   - Optimized checkout: Only updates when assignment changes
   - Prevents unnecessary checkin/checkout cycles
+  - **Fuzzy serial matching**: Safely handles EDID serial variations
+    - Matches UK2239016158 ↔ UK02239016158 (zero padding)
+    - Prevents false matches like 3CM22239ZQ ≠ 3CM22239Z0
+    - Levenshtein distance safety check (max 3 edits)
+    - Segment-based: Letters exact, numbers ignore leading zeros
 
 - **Smart Synchronization**
   - Finds or creates manufacturers and models

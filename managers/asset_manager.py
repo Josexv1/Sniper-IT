@@ -100,23 +100,16 @@ class AssetManager:
             
             # Check if serial is valid (not a placeholder)
             is_serial_valid = self._is_serial_valid(serial)
+            if not is_serial_valid and self.logger.verbosity >= 2:
+                console.print(f"  [yellow]⚠ Serial appears invalid, will use hostname as serial[/yellow]")
             
-            # Show basic info only in debug mode (-vv)
-            if self.logger.verbosity >= 2:
-                console.print(f"  [dim]Hostname:[/dim] {hostname}")
-                console.print(f"  [dim]Manufacturer:[/dim] {manufacturer}")
-                console.print(f"  [dim]Model:[/dim] {model}")
-                console.print(f"  [dim]Serial:[/dim] {serial}")
-                if not is_serial_valid:
-                    console.print(f"  [yellow]⚠ Serial appears invalid, will use hostname as serial[/yellow]")
-            
-            # Step 1: Find or create manufacturer
+            # Find or create manufacturer
             self.logger.debug("")
             print_step(f"Processing manufacturer: {manufacturer}", "processing")
             manufacturer_id = self.api.find_or_create_manufacturer(manufacturer)
-            self.logger.debug(f"  [green]✓[/green] Manufacturer ID: {manufacturer_id}")
+            print_step(f"Manufacturer ID: {manufacturer_id}", "ok")
             
-            # Step 2: Find or create model (using appropriate category based on asset type)
+            # Find or create model (using appropriate category based on asset type)
             print_step(f"Processing model: {model}", "processing")
             
             # Select category based on asset type
@@ -127,21 +120,6 @@ class AssetManager:
             else:  # desktop
                 category_id = self.defaults.get('desktop_category_id', 3)
             
-            self.logger.debug(f"    Using category ID: {category_id} ({asset_type_display})")
-            
-            # Check if model exists to detect category changes
-            existing_model_id = self.api.find_model_by_name(model, manufacturer_id)
-            if existing_model_id:
-                try:
-                    existing_model = self.api.get_model_by_id(existing_model_id)
-                    existing_category_id = existing_model.get('category', {}).get('id')
-                    existing_category_name = existing_model.get('category', {}).get('name', 'Unknown')
-                    
-                    if existing_category_id != category_id:
-                        self.logger.debug(f"    [yellow]Category mismatch:[/yellow] {existing_category_name} → {asset_type_display}")
-                except Exception:
-                    pass
-            
             model_id = self.api.find_or_create_model(
                 name=model,
                 model_number=model,  # Use model name as model number
@@ -149,15 +127,13 @@ class AssetManager:
                 category_id=category_id,
                 fieldset_id=self.defaults.get('laptop_fieldset_id', 1)
             )
-            self.logger.debug(f"  [green]✓[/green] Model ID: {model_id}")
+            print_info(f"Model ID: {model_id}")
             
-            # Step 3: Check if asset exists
-            # For desktops with invalid serials, search by hostname
-            # For laptops and desktops with valid serials, search by hostname (serial is secondary)
-            print_step(f"Searching for existing asset: {hostname}", "processing")
+            # Search for existing asset
+            print_subsection(f"Searching for existing asset: {hostname}")
             existing_asset_id = self.api.find_hardware_by_hostname(hostname)
             
-            # Step 4: Prepare payload
+            # Prepare payload
             # Use hostname as serial for assets with invalid serials (mostly desktops)
             # This ensures uniqueness since all machines are domain-joined
             effective_serial = serial if is_serial_valid else hostname
@@ -175,7 +151,7 @@ class AssetManager:
             custom_field_payload = self._map_custom_fields_to_payload(custom_fields)
             payload.update(custom_field_payload)
             
-            # Step 5: Create or update asset
+            # Create or update asset
             if existing_asset_id:
                 self.logger.debug(f"  [green]✓[/green] Found existing asset ID: {existing_asset_id}")
                 
@@ -196,11 +172,14 @@ class AssetManager:
                 self.logger.debug(f"    Asset tag: {payload['asset_tag']}")
                 
                 # Track changes between existing and new data
-                changes = self._detect_changes(existing_data, payload, model_id)
+                change_info = self._detect_changes(existing_data, payload, model_id)
+                changes = change_info['summary']
+                detailed_changes = change_info['details']
                 
                 if not changes:
                     print_step(f"Asset up to date (ID: {existing_asset_id})", "ok")
                     asset_id = existing_asset_id
+                    action = 'no_change'
                 else:
                     print_step(f"Updating asset with {len(changes)} change(s)", "processing")
                     for change in changes:
@@ -211,6 +190,7 @@ class AssetManager:
                     if result.get('status') == 'success':
                         print_step(f"Asset updated successfully (ID: {existing_asset_id})", "ok")
                         asset_id = existing_asset_id
+                        action = 'updated'
                     else:
                         print_error(f"Update failed: {result.get('messages', 'Unknown error')}")
                         return None
@@ -220,26 +200,25 @@ class AssetManager:
                 payload['asset_tag'] = self._generate_asset_tag(hostname)
                 self.logger.debug(f"    Generated asset tag: {payload['asset_tag']}")
                 
+                # For new assets, no changes to track
+                changes = []
+                detailed_changes = {}
+                
                 print_step("Creating new asset", "processing")
                 result = self.api.create_hardware(payload)
                 
                 if result.get('status') == 'success':
                     asset_id = result['payload']['id']
                     print_step(f"Asset created successfully (ID: {asset_id})", "ok")
+                    action = 'created'
                 else:
                     print_error(f"Creation failed: {result.get('messages', 'Unknown error')}")
                     return None
             
-            # Step 6: Verify the asset
+            # Verify the asset
             verification = self._verify_asset(asset_id)
             
             # Determine action and changes
-            if existing_asset_id:
-                action = 'updated' if changes else 'no_change'
-            else:
-                action = 'created'
-                changes = None
-            
             return {
                 'asset_id': asset_id,
                 'hostname': hostname,
@@ -247,7 +226,8 @@ class AssetManager:
                 'model_id': model_id,
                 'verification': verification,
                 'action': action,
-                'changes': changes
+                'changes': changes,
+                'detailed_changes': detailed_changes
             }
             
         except APIError as e:
@@ -451,7 +431,7 @@ class AssetManager:
         return 0
     
     
-    def _detect_changes(self, existing_data: Dict[str, Any], new_payload: Dict[str, Any], new_model_id: int) -> list:
+    def _detect_changes(self, existing_data: Dict[str, Any], new_payload: Dict[str, Any], new_model_id: int) -> Dict[str, Any]:
         """
         Detect changes between existing asset data and new payload.
         
@@ -461,27 +441,31 @@ class AssetManager:
             new_model_id: New model ID
             
         Returns:
-            List of change descriptions (empty if no changes)
+            Dictionary with 'summary' (list of change descriptions) and 'details' (dict of field changes)
         """
         changes = []
+        detailed_changes = {}  # Field name -> {old: value, new: value}
         
         # Check model change
         existing_model_id = existing_data.get('model', {}).get('id')
         if existing_model_id and existing_model_id != new_model_id:
             existing_model_name = existing_data.get('model', {}).get('name', 'Unknown')
             changes.append(f"Model changed (was: {existing_model_name})")
+            detailed_changes['Model'] = {'old': existing_model_name, 'new': 'Updated'}
         
         # Check asset tag change
         existing_tag = existing_data.get('asset_tag', '')
         new_tag = new_payload.get('asset_tag', '')
         if existing_tag != new_tag:
             changes.append(f"Asset tag changed: {existing_tag} → {new_tag}")
+            detailed_changes['Asset Tag'] = {'old': existing_tag, 'new': new_tag}
         
         # Check serial change
         existing_serial = existing_data.get('serial', '')
         new_serial = new_payload.get('serial', '')
         if existing_serial != new_serial:
             changes.append(f"Serial changed: {existing_serial} → {new_serial}")
+            detailed_changes['Serial'] = {'old': existing_serial, 'new': new_serial}
         
         # Check status change
         existing_status_id = existing_data.get('status_label', {}).get('id')
@@ -489,6 +473,7 @@ class AssetManager:
         if existing_status_id and existing_status_id != new_status_id:
             existing_status_name = existing_data.get('status_label', {}).get('name', 'Unknown')
             changes.append(f"Status changed (was: {existing_status_name})")
+            detailed_changes['Status'] = {'old': existing_status_name, 'new': 'Updated'}
         
         # Check custom fields changes
         existing_custom_fields = existing_data.get('custom_fields', {})
@@ -497,14 +482,25 @@ class AssetManager:
         # Fields to ignore in change detection (volatile data that changes frequently)
         ignored_fields = ['disk_space_used', 'ram_usage']
         
+        # Get display name mapping from config
+        custom_fields_config = self.config.get('custom_fields', {}).get('basic_system_fields', {})
+        db_to_display = {}
+        for field_key, field_config in custom_fields_config.items():
+            if field_config.get('enabled', False):
+                db_column = field_config.get('db_column', '')
+                display_name = field_config.get('display_name', '')
+                if db_column and display_name:
+                    db_to_display[db_column] = display_name
+        
         for field_key, field_value in new_payload.items():
             if field_key.startswith('_snipeit_'):
                 # Skip ignored fields (disk space, RAM usage, etc.)
                 if any(ignored in field_key for ignored in ignored_fields):
                     continue
                 
-                # This is a custom field
-                field_name = field_key.replace('_snipeit_', '').replace('_', ' ').title()
+                # Get proper display name from config, fallback to formatted key
+                field_display_name = db_to_display.get(field_key, 
+                    field_key.replace('_snipeit_', '').replace('_', ' ').title())
                 
                 # Find matching field in existing data
                 existing_value = None
@@ -514,13 +510,24 @@ class AssetManager:
                         break
                 
                 # Compare values (normalize to strings)
-                if str(existing_value or '') != str(field_value or ''):
+                existing_str = str(existing_value or '').strip()
+                new_str = str(field_value or '').strip()
+                
+                if existing_str != new_str:
                     custom_field_changes += 1
+                    # Store detailed change with proper display name
+                    detailed_changes[field_display_name] = {
+                        'old': existing_str if existing_str else '(empty)',
+                        'new': new_str if new_str else '(empty)'
+                    }
         
         if custom_field_changes > 0:
             changes.append(f"{custom_field_changes} custom field(s) updated")
         
-        return changes
+        return {
+            'summary': changes,
+            'details': detailed_changes
+        }
     
     def _is_serial_valid(self, serial: str) -> bool:
         """

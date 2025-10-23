@@ -136,13 +136,14 @@ class SnipeITClient:
         response = self._request('GET', f'/hardware/{asset_id}')
         return response.json()
     
-    def search_hardware(self, search_term: str, limit: int = 50) -> List[Dict[str, Any]]:
+    def search_hardware(self, search_term: str, limit: int = 50, category_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         Search for hardware assets
         
         Args:
             search_term: Search query
             limit: Maximum results
+            category_id: Optional category ID to filter results
             
         Returns:
             List of matching assets
@@ -151,6 +152,9 @@ class SnipeITClient:
             'search': search_term,
             'limit': limit
         }
+        if category_id:
+            params['category_id'] = category_id
+        
         data = self.get_hardware(params)
         return data.get('rows', [])
     

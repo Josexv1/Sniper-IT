@@ -1,5 +1,34 @@
 # Changelog
 
+## Version 2.3.4
+
+### Monitor Duplicate Prevention
+- Redesigned monitor search logic to eliminate duplicate asset creation
+- Reduced API overhead by fetching all monitors per manufacturer in a single request
+- Implemented in-memory filtering with fuzzy matching for model names and serial numbers
+- Added automatic serial number normalization to handle zero-padding variations (e.g., `XFXP6HA12946` vs `XFXP6HA012946`)
+- Database serial numbers automatically updated to match canonical EDID values when discrepancies are detected
+- Extended `search_hardware()` method with `category_id` parameter for improved filtering
+- Performance improvement: 67% reduction in search API calls
+
+### Serial Number Matching Algorithm
+- Implemented Levenshtein distance algorithm with maximum edit distance threshold of 3
+- Segment-based comparison requiring exact letter matches while ignoring leading zeros in numeric segments
+- Successfully handles real-world edge cases including UK2239016158/UK02239016158 and XFXP6HA12946/XFXP6HA012946
+- Prevents false matches between similar serials (e.g., 3CM22239ZQ vs 3CM22239Z0)
+- Multi-layered validation prevents database corruption from incorrect matches
+
+### Display and Logging Improvements
+- Removed duplicate system information display during sync operations
+- Eliminated sequential step numbering in favor of clean progress indicators
+- Enhanced debug mode (`-vv`) with comprehensive system information output:
+  - Computer hardware: chassis type, processor, memory, disk, network interfaces, OS details, BIOS version
+  - Monitor specifications: native resolution, refresh rate, connection interface, bit depth, physical dimensions, EDID codes
+  - Custom field values for all configured fields
+- Detailed change tracking displays field-level modifications with old/new value comparison
+- Verbose mode (`-v`) provides summary-level change information
+- Debug mode (`-vv`) provides granular field-by-field change details with normalization steps and match decisions
+
 ## Version 2.2.8
 - **Monitor name change detection**: Monitor names now properly update when they contain old "Connected to" text
 - **Monitor asset tag auto-increment**: Monitors now support custom naming conventions (e.g., 'MIS-MON-N')
@@ -8,6 +37,11 @@
 - **Config template update**: Added `monitor_naming_convention` field to defaults
 - **Clean monitor names**: Monitor names are now just the model (e.g., "HP M24fe FHD" not "PHL PHL 275V8 - Connected to...")
 - **Consistent asset tags**: Monitors now use proper naming convention instead of serial numbers (unless configured otherwise)
+- **Modern CLI output**: Complete redesign with structured boxes, clean sections, and professional formatting
+- **Three verbosity levels**: Quiet mode (spinners with emojis), verbose mode (structured output), debug mode (full details)
+- **Status indicators**: Clean status symbols (✓, ⋯, ⚠, ✗) for processing steps
+- **Boxed summaries**: Computer and monitor results displayed in organized boxes
+- **Smart information display**: Debug details only shown with `-vv` flag
 
 ## Version 2.2.7
 - **Smart change detection**: Assets only updated when meaningful changes are detected

@@ -157,7 +157,7 @@ class SyncManager:
         try:
             # Show spinner for quiet mode, detailed output for verbose
             if self.verbosity == 0:
-                with spinner("Collecting system data...", "dots"):
+                with spinner("🔍 Collecting system data...", "dots"):
                     collector = SystemDataCollector(self.config)
                     system_data = collector.collect_all()
                 self.logger.quiet(f"{STATUS_OK} System data collected")
@@ -167,10 +167,11 @@ class SyncManager:
                 system_data = collector.collect_all()
                 
                 # Display collected data based on verbosity
-                hostname = system_data['system_data'].get('hostname', 'Unknown')
-                manufacturer = system_data['system_data'].get('manufacturer', 'Unknown')
-                model = system_data['system_data'].get('model', 'Unknown')
-                serial = system_data['system_data'].get('serial_number', 'Unknown')
+                sd = system_data['system_data']
+                hostname = sd.get('hostname', 'Unknown')
+                manufacturer = sd.get('manufacturer', 'Unknown')
+                model = sd.get('model', 'Unknown')
+                serial = sd.get('serial_number', 'Unknown')
                 os_type = system_data.get('os_type', 'Unknown')
                 asset_type = system_data.get('asset_type', 'desktop').capitalize()
                 
@@ -181,7 +182,42 @@ class SyncManager:
                 print_box_item("Model", model)
                 print_box_item("Serial", serial)
                 print_box_item("OS", os_type)
-                self.logger.debug(f"[dim]│ [/dim][cyan]Custom Fields:[/cyan] {len(system_data['custom_fields'])} collected")
+                
+                # Show detailed information in debug mode (-vv)
+                if self.verbosity >= 2:
+                    chassis_type = sd.get('chassis_type', 'N/A')
+                    processor = sd.get('processor', 'N/A')
+                    memory = sd.get('memory_total_gb', 'N/A')
+                    disk_total = sd.get('disk_space_total_gb', 'N/A')
+                    disk_used = sd.get('disk_space_used_gb', 'N/A')
+                    ip_address = sd.get('ip_address', 'N/A')
+                    mac_address = sd.get('mac_address', 'N/A')
+                    os_version = sd.get('operating_system', 'N/A')
+                    os_install_date = sd.get('os_install_date', 'N/A')
+                    bios_version = sd.get('bios_version', 'N/A')
+                    
+                    console.print(f"[dim]│ [/dim][dim]─────────────────────────────────[/dim]")
+                    print_box_item("Chassis Type", chassis_type)
+                    print_box_item("Processor", processor)
+                    print_box_item("Memory", f"{memory} GB" if memory != 'N/A' else 'N/A')
+                    print_box_item("Disk Space", f"{disk_used} GB / {disk_total} GB" if disk_total != 'N/A' else 'N/A')
+                    print_box_item("IP Address", ip_address)
+                    print_box_item("MAC Address", mac_address)
+                    print_box_item("OS Version", os_version)
+                    print_box_item("OS Install Date", os_install_date)
+                    print_box_item("BIOS Version", bios_version)
+                    console.print(f"[dim]│ [/dim][dim]─────────────────────────────────[/dim]")
+                    
+                    # Show custom fields summary
+                    custom_fields = system_data.get('custom_fields', {})
+                    console.print(f"[dim]│ [/dim][cyan]Custom Fields:[/cyan] {len(custom_fields)} collected")
+                    for field_name, value in custom_fields.items():
+                        # Truncate long values for cleaner display
+                        display_value = str(value)[:50] + '...' if len(str(value)) > 50 else str(value)
+                        console.print(f"[dim]│   [/dim][dim]• {field_name}:[/dim] {display_value}")
+                else:
+                    console.print(f"[dim]│ [/dim][cyan]Custom Fields:[/cyan] {len(system_data['custom_fields'])} collected")
+                
                 print_box_footer()
             
             return system_data
@@ -203,7 +239,7 @@ class SyncManager:
         try:
             # Show spinner for quiet mode, detailed output for verbose
             if self.verbosity == 0:
-                with spinner("Collecting monitor data...", "dots"):
+                with spinner("🖥️  Collecting monitor data...", "dots"):
                     collector = MonitorCollector(self.config)
                     monitors = collector.collect_monitors()
                 self.logger.quiet(f"{STATUS_OK} Found {len(monitors)} external monitor(s)" if monitors else f"{STATUS_INFO} No external monitors detected")
@@ -219,8 +255,27 @@ class SyncManager:
                         model = monitor.get('model', 'Unknown')
                         serial = monitor.get('serial_number', '')
                         resolution = monitor.get('resolution', 'N/A')
+                        
                         console.print(f"[dim]│ [/dim][bold cyan]Monitor {i}:[/bold cyan] {manufacturer} {model}")
+                        
+                        # Show detailed monitor info in debug mode (-vv)
                         if self.verbosity >= 2:
+                            native_res = monitor.get('native_resolution', 'N/A')
+                            refresh_rate = monitor.get('refresh_rate', 'N/A')
+                            connection = monitor.get('connection_interface', 'N/A')
+                            bit_depth = monitor.get('bit_depth', 'N/A')
+                            screen_size = monitor.get('monitor_screen_size', 'N/A')
+                            edid_manufacturer = monitor.get('edid_manufacturer_code', 'N/A')
+                            
+                            console.print(f"[dim]│   [/dim][dim]Serial:[/dim] {serial if serial else '(empty)'}")
+                            console.print(f"[dim]│   [/dim][dim]Resolution:[/dim] {resolution}")
+                            console.print(f"[dim]│   [/dim][dim]Native Resolution:[/dim] {native_res}")
+                            console.print(f"[dim]│   [/dim][dim]Refresh Rate:[/dim] {refresh_rate}")
+                            console.print(f"[dim]│   [/dim][dim]Connection:[/dim] {connection}")
+                            console.print(f"[dim]│   [/dim][dim]Bit Depth:[/dim] {bit_depth}")
+                            console.print(f"[dim]│   [/dim][dim]Screen Size:[/dim] {screen_size}")
+                            console.print(f"[dim]│   [/dim][dim]EDID Code:[/dim] {edid_manufacturer}")
+                        else:
                             console.print(f"[dim]│   [/dim][dim]Serial:[/dim] {serial if serial else '(empty)'}")
                             console.print(f"[dim]│   [/dim][dim]Resolution:[/dim] {resolution}")
                     print_box_footer()
@@ -280,7 +335,7 @@ class SyncManager:
         # Step 5: Process computer asset (laptop/desktop/server)
         self.logger.quiet("")
         if self.verbosity == 0:
-            with spinner("Syncing computer asset to Snipe-IT...", "dots"):
+            with spinner("💻 Syncing computer asset to Snipe-IT...", "dots"):
                 asset_result = self.asset_manager.process_asset(system_data)
         else:
             asset_result = self.asset_manager.process_asset(system_data)
@@ -296,7 +351,7 @@ class SyncManager:
         if monitors:
             self.logger.quiet("")
             if self.verbosity == 0:
-                with spinner("Syncing monitors to Snipe-IT...", "dots"):
+                with spinner("🖥️  Syncing monitors to Snipe-IT...", "dots"):
                     monitor_results = self.monitor_manager.process_monitors(
                         monitors, 
                         parent_hostname,
@@ -398,10 +453,21 @@ class SyncManager:
         
         # Show what changed if updated
         changes = asset_result.get('changes')
+        detailed_changes = asset_result.get('detailed_changes', {})
+        
         if changes and len(changes) > 0:
             console.print(f"[dim]│ [/dim][cyan]Changes:[/cyan]")
-            for change in changes:
-                console.print(f"[dim]│   [/dim][dim]• {change}[/dim]")
+            
+            # Show detailed changes in debug mode (-vv)
+            if self.verbosity >= 2 and detailed_changes:
+                for field_name, change_data in detailed_changes.items():
+                    old_val = change_data['old']
+                    new_val = change_data['new']
+                    console.print(f"[dim]│   [/dim][dim]• {field_name}:[/dim] {old_val} [yellow]→[/yellow] {new_val}")
+            else:
+                # Show summary in verbose mode (-v)
+                for change in changes:
+                    console.print(f"[dim]│   [/dim][dim]• {change}[/dim]")
         
         verification = asset_result.get('verification', {})
         if verification:
@@ -426,6 +492,23 @@ class SyncManager:
                 console.print(f"[dim]│ [/dim][bold cyan]Monitor {i}:[/bold cyan] {result.get('name', 'N/A')}")
                 console.print(f"[dim]│   [/dim][dim]Asset ID:[/dim] {result.get('asset_id', 'N/A')}")
                 console.print(f"[dim]│   [/dim][dim]Status:[/dim] {mon_status}")
+                
+                # Show monitor changes if updated (with detailed info in debug mode)
+                mon_changes = result.get('changes', [])
+                mon_detailed_changes = result.get('detailed_changes', {})
+                if mon_changes and len(mon_changes) > 0:
+                    console.print(f"[dim]│   [/dim][cyan]Changes:[/cyan]")
+                    
+                    # Show detailed changes in debug mode (-vv)
+                    if self.verbosity >= 2 and mon_detailed_changes:
+                        for field_name, change_data in mon_detailed_changes.items():
+                            old_val = change_data['old']
+                            new_val = change_data['new']
+                            console.print(f"[dim]│     [/dim][dim]• {field_name}:[/dim] {old_val} [yellow]→[/yellow] {new_val}")
+                    else:
+                        # Show summary in verbose mode (-v)
+                        for change in mon_changes:
+                            console.print(f"[dim]│     [/dim][dim]• {change}[/dim]")
                 
                 if result.get('checked_out_to_user'):
                     user_name = result.get('checked_out_to_user_name', f"User #{result.get('checked_out_to_user')}")
