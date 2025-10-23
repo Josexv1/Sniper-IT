@@ -3,6 +3,7 @@ Sniper-IT Agent - Monitor Manager
 Handles monitor asset operations in Snipe-IT
 """
 
+import re
 from typing import Dict, Any, Optional, List
 from core.api_client import SnipeITClient
 from cli.formatters import print_info, print_error, print_warning, console
@@ -221,12 +222,9 @@ class MonitorManager:
                 existing_data = self.api.get_hardware_by_id(existing_asset_id)
                 existing_tag = existing_data.get('asset_tag', '')
                 
-                if existing_tag:
-                    payload['asset_tag'] = existing_tag
-                    self.logger.verbose(f"  {STATUS_INFO} Preserving asset tag: {existing_tag}")
-                else:
-                    payload['asset_tag'] = payload['serial']
-                    self.logger.verbose(f"  {STATUS_INFO} Using serial as asset tag: {payload['serial']}")
+                # Generate or preserve asset tag based on naming convention
+                payload['asset_tag'] = self._generate_or_preserve_monitor_asset_tag(serial, existing_tag)
+                self.logger.verbose(f"  {STATUS_INFO} Preserving asset tag: {payload['asset_tag']}")
                 
                 # Check if update is needed
                 has_changes = self._detect_monitor_changes(existing_data, payload, model_id)
@@ -256,8 +254,9 @@ class MonitorManager:
                         return None
             else:
                 self.logger.verbose(f"  {STATUS_INFO} Creating new monitor...")
-                payload['asset_tag'] = payload['serial']
-                self.logger.verbose(f"  {STATUS_INFO} Asset tag: {payload['serial']}")
+                # Generate asset tag based on naming convention
+                payload['asset_tag'] = self._generate_monitor_asset_tag(serial)
+                self.logger.verbose(f"  {STATUS_INFO} Generated asset tag: {payload['asset_tag']}")
                 
                 result = self.api.create_hardware(payload)
                 
@@ -370,6 +369,12 @@ class MonitorManager:
         Returns:
             True if changes detected, False if monitor is already up to date
         """
+        # Check name change
+        existing_name = existing_data.get('name', '')
+        new_name = new_payload.get('name', '')
+        if existing_name != new_name:
+            return True
+        
         # Check model change
         existing_model_id = existing_data.get('model', {}).get('id')
         if existing_model_id and existing_model_id != new_model_id:
@@ -398,3 +403,153 @@ class MonitorManager:
                     return True
         
         return False
+    
+    def _generate_or_preserve_monitor_asset_tag(self, serial: str, existing_tag: str = '') -> str:
+        """
+        Generate monitor asset tag based on naming convention or preserve existing valid tag.
+        
+        Args:
+            serial: Monitor serial number to use as fallback
+            existing_tag: Existing asset tag (if updating a monitor)
+            
+        Returns:
+            Asset tag string (e.g., MIS-MON-0027 or serial number)
+        """
+        naming_convention = self.defaults.get('monitor_naming_convention', '').strip()
+        
+        # If no naming convention, use serial number
+        if not naming_convention:
+            return serial
+        
+        # Check if existing tag matches the naming convention pattern
+        if existing_tag and self._tag_matches_pattern(existing_tag, naming_convention):
+            self.logger.debug(f"{STATUS_INFO} Preserving existing monitor asset tag: {existing_tag}")
+            return existing_tag
+        
+        # Generate new tag
+        return self._generate_monitor_asset_tag(serial)
+    
+    def _generate_monitor_asset_tag(self, serial: str) -> str:
+        """
+        Generate new monitor asset tag based on naming convention.
+        
+        Args:
+            serial: Monitor serial number to use as fallback
+            
+        Returns:
+            Generated asset tag string (e.g., MIS-MON-0027)
+        """
+        naming_convention = self.defaults.get('monitor_naming_convention', '').strip()
+        
+        # If no naming convention, use serial
+        if not naming_convention:
+            return serial
+        
+        # Find the last asset with this naming pattern
+        try:
+            self.logger.debug(f"{STATUS_INFO} Searching for monitor assets with pattern: {naming_convention}")
+            last_tag = self._find_last_monitor_asset_tag(naming_convention)
+            
+            if last_tag:
+                # Extract number and increment
+                current_number = self._extract_number_from_tag(last_tag, naming_convention)
+                next_number = current_number + 1
+                
+                # Determine padding from pattern or last tag
+                num_digits = len(str(current_number))
+                new_tag = naming_convention.replace('N', str(next_number).zfill(num_digits))
+                
+                self.logger.debug(f"{STATUS_INFO} Found last monitor tag: {last_tag} (#{current_number})")
+                self.logger.debug(f"{STATUS_INFO} Generated new monitor tag: {new_tag} (#{next_number})")
+                return new_tag
+            else:
+                # No existing assets found - start with 0001
+                new_tag = naming_convention.replace('N', '0001')
+                self.logger.debug(f"{STATUS_INFO} No existing monitor tags found, starting with: {new_tag}")
+                return new_tag
+                
+        except Exception as e:
+            self.logger.verbose(f"{STATUS_WARNING} Monitor asset tag generation failed: {e}")
+            self.logger.verbose(f"{STATUS_INFO} Falling back to serial number")
+            return serial
+    
+    def _tag_matches_pattern(self, tag: str, pattern: str) -> bool:
+        """
+        Check if an asset tag matches the naming convention pattern.
+        
+        Args:
+            tag: Asset tag to check (e.g., 'MIS-MON-0027')
+            pattern: Pattern with 'N' placeholder (e.g., 'MIS-MON-N')
+            
+        Returns:
+            True if tag matches pattern, False otherwise
+        """
+        if not tag or not pattern:
+            return False
+        
+        # Convert pattern to regex
+        regex_pattern = re.escape(pattern).replace('N', r'(\d+)')
+        return bool(re.fullmatch(regex_pattern, tag))
+    
+    def _find_last_monitor_asset_tag(self, pattern: str) -> Optional[str]:
+        """
+        Find the last monitor asset tag matching the naming pattern
+        
+        Args:
+            pattern: Naming pattern with 'N' placeholder (e.g., 'MIS-MON-N')
+            
+        Returns:
+            Last matching asset tag or None if not found
+        """
+        # Convert pattern to search query (replace N with wildcard)
+        # For pattern "MIS-MON-N" we search for "MIS-MON"
+        search_prefix = pattern.split('N')[0]
+        
+        self.logger.debug(f"{STATUS_INFO} Searching for monitor asset tags starting with: {search_prefix}")
+        
+        # Search for assets with this prefix
+        # Note: Snipe-IT search is limited, so we fetch up to 500 assets and filter
+        search_results = self.api.search_hardware(search_prefix, limit=500)
+        
+        self.logger.debug(f"{STATUS_INFO} Found {len(search_results)} assets in search results")
+        
+        matching_tags = []
+        
+        # Create regex pattern to match the naming convention
+        # Replace 'N' with digit pattern
+        regex_pattern = re.escape(pattern).replace('N', r'(\d+)')
+        
+        for asset in search_results:
+            asset_tag = asset.get('asset_tag', '')
+            if re.fullmatch(regex_pattern, asset_tag):
+                matching_tags.append(asset_tag)
+        
+        self.logger.debug(f"{STATUS_INFO} Found {len(matching_tags)} monitor assets matching pattern '{pattern}'")
+        
+        if not matching_tags:
+            return None
+        
+        # Sort by the numeric part and return the last one
+        matching_tags.sort(key=lambda tag: self._extract_number_from_tag(tag, pattern))
+        
+        self.logger.debug(f"{STATUS_INFO} Highest monitor tag in sequence: {matching_tags[-1]}")
+        
+        return matching_tags[-1]
+    
+    def _extract_number_from_tag(self, tag: str, pattern: str) -> int:
+        """
+        Extract the numeric part from an asset tag
+        
+        Args:
+            tag: Asset tag (e.g., 'MIS-MON-0027')
+            pattern: Pattern with 'N' (e.g., 'MIS-MON-N')
+            
+        Returns:
+            Extracted number as integer
+        """
+        regex_pattern = re.escape(pattern).replace('N', r'(\d+)')
+        match = re.fullmatch(regex_pattern, tag)
+        
+        if match:
+            return int(match.group(1))
+        return 0

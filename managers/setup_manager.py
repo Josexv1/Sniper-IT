@@ -202,8 +202,11 @@ class SetupManager:
             if not self._step_review_and_create_custom_fields(monitor_fieldset_id, "Monitor"):
                 return False
             
-            # Step 11: Asset Tag Naming Convention (Optional)
-            naming_convention = self._step_configure_naming_convention()
+            # Step 11: Computer Asset Tag Naming Convention (Optional)
+            naming_convention = self._step_configure_naming_convention("Computer")
+            
+            # Step 12: Monitor Asset Tag Naming Convention (Optional)
+            monitor_naming_convention = self._step_configure_naming_convention("Monitor")
             
             # Ask if user wants to generate config
             console.print()
@@ -211,7 +214,7 @@ class SetupManager:
                 print_info("Setup cancelled. Configuration not saved.")
                 return False
             
-            # Step 12: Generate Configuration
+            # Step 13: Generate Configuration
             if not self._step_generate_config(
                 company_id, 
                 laptop_category_id,
@@ -221,7 +224,8 @@ class SetupManager:
                 monitor_category_id,
                 monitor_fieldset_id,
                 status_id,
-                naming_convention
+                naming_convention,
+                monitor_naming_convention
             ):
                 return False
             
@@ -768,53 +772,81 @@ class SetupManager:
             except ValueError:
                 print_error("Please enter a valid number")
     
-    def _step_configure_naming_convention(self) -> str:
-        """Configure optional asset tag naming convention"""
+    def _step_configure_naming_convention(self, asset_type: str = "Computer") -> str:
+        """Configure optional asset tag naming convention
+        
+        Args:
+            asset_type: Type of asset ("Computer" or "Monitor")
+            
+        Returns:
+            Naming convention pattern or empty string
+        """
         console.print()
         console.print()
         console.print("[bold cyan]═══════════════════════════════════════════════[/bold cyan]")
-        console.print("[bold cyan]     ASSET TAG NAMING CONVENTION (Optional)    [/bold cyan]")
+        console.print(f"[bold cyan]  {asset_type.upper()} ASSET TAG NAMING CONVENTION (Optional)  [/bold cyan]")
         console.print("[bold cyan]═══════════════════════════════════════════════[/bold cyan]")
         console.print()
         
-        print_info("Asset tag generation options:")
+        print_info(f"{asset_type} asset tag generation options:")
         console.print()
         console.print("[bold]Option 1: Agent-managed auto-increment[/bold]")
         console.print("  • Agent searches for last tag and increments automatically")
         console.print("  • Use '-N' or '_N' as placeholder (will be replaced with number)")
         console.print("  • Pattern examples:")
-        console.print("    - MIS-2025-N  → MIS-2025-0001, MIS-2025-0002, MIS-2025-0003...")
-        console.print("    - LAPTOP_N    → LAPTOP_0001, LAPTOP_0002, LAPTOP_0003...")
-        console.print("    - IT-N        → IT-0001, IT-0002, IT-0003...")
+        if asset_type == "Monitor":
+            console.print("    - MIS-MON-N   → MIS-MON-0001, MIS-MON-0002, MIS-MON-0003...")
+            console.print("    - MONITOR_N   → MONITOR_0001, MONITOR_0002, MONITOR_0003...")
+            console.print("    - MON-N       → MON-0001, MON-0002, MON-0003...")
+        else:
+            console.print("    - MIS-2025-N  → MIS-2025-0001, MIS-2025-0002, MIS-2025-0003...")
+            console.print("    - LAPTOP_N    → LAPTOP_0001, LAPTOP_0002, LAPTOP_0003...")
+            console.print("    - IT-N        → IT-0001, IT-0002, IT-0003...")
         console.print()
         console.print("[bold]Option 2: Snipe-IT built-in auto-increment[/bold]")
         console.print("  • Configure in: Settings → Asset Tags → Auto-increment")
         console.print("  • Managed entirely within Snipe-IT")
         console.print()
-        console.print("[bold]Option 3: Use hostname as asset tag[/bold]")
-        console.print("  • Asset tag = hostname (e.g., LAMAD0150)")
-        console.print("  • Simple and guaranteed unique")
-        console.print()
-        console.print("[dim]Note: Asset name will always be the hostname[/dim]")
+        if asset_type == "Monitor":
+            console.print("[bold]Option 3: Use serial number as asset tag[/bold]")
+            console.print("  • Asset tag = monitor serial (e.g., 3CM2233B68)")
+            console.print("  • Simple and guaranteed unique")
+            console.print()
+            console.print("[dim]Note: Monitor asset name will always be the model (e.g., HP M24fe FHD)[/dim]")
+        else:
+            console.print("[bold]Option 3: Use hostname as asset tag[/bold]")
+            console.print("  • Asset tag = hostname (e.g., LAMAD0150)")
+            console.print("  • Simple and guaranteed unique")
+            console.print()
+            console.print("[dim]Note: Computer asset name will always be the hostname[/dim]")
         console.print()
         
-        if not prompt_yes_no("Do you want to use custom automatic asset tag generation by the Agent?", default=False):
-            print_info("Skipping - Agent will use hostname as asset tag")
+        if not prompt_yes_no(f"Do you want to use custom automatic {asset_type.lower()} asset tag generation by the Agent?", default=False):
+            if asset_type == "Monitor":
+                print_info("Skipping - Agent will use serial number as monitor asset tag")
+            else:
+                print_info("Skipping - Agent will use hostname as asset tag")
             print_info("You can configure asset tag auto-increment in Snipe-IT Settings if needed")
             return ""
         
         console.print()
         print_info("Enter your naming pattern:")
         console.print("  • Use 'N' as placeholder - it will be replaced with auto-increment number")
-        console.print("  • Use '-N' or '_N' for best results (e.g., MIS-2025-N, LAPTOP_N)")
+        if asset_type == "Monitor":
+            console.print("  • Use '-N' or '_N' for best results (e.g., MIS-MON-N, MONITOR_N)")
+        else:
+            console.print("  • Use '-N' or '_N' for best results (e.g., MIS-2025-N, LAPTOP_N)")
         console.print("  • The 'N' will become: 0001, 0002, 0003, etc.")
         console.print()
         
         while True:
-            pattern = prompt_input("Asset tag pattern (or press Enter to skip)", default="")
+            pattern = prompt_input(f"{asset_type} asset tag pattern (or press Enter to skip)", default="")
             
             if not pattern or not pattern.strip():
-                print_info("No pattern configured - will use hostname as asset tag")
+                if asset_type == "Monitor":
+                    print_info("No pattern configured - will use serial number as monitor asset tag")
+                else:
+                    print_info("No pattern configured - will use hostname as asset tag")
                 return ""
             
             pattern = pattern.strip()
@@ -822,7 +854,10 @@ class SetupManager:
             # Validate pattern contains 'N'
             if 'N' not in pattern:
                 print_error("Pattern must contain 'N' as placeholder for the auto-increment number")
-                console.print("  [dim]Examples: MIS-2025-N, LAPTOP_N, IT-N[/dim]")
+                if asset_type == "Monitor":
+                    console.print("  [dim]Examples: MIS-MON-N, MONITOR_N, MON-N[/dim]")
+                else:
+                    console.print("  [dim]Examples: MIS-2025-N, LAPTOP_N, IT-N[/dim]")
                 continue
             
             # Validate pattern has only one 'N'
@@ -1250,7 +1285,8 @@ class SetupManager:
         monitor_category_id: int,
         monitor_fieldset_id: int,
         status_id: int,
-        naming_convention: str = ""
+        naming_convention: str = "",
+        monitor_naming_convention: str = ""
     ) -> bool:
         """Generate and save configuration"""
         print_header("Generating Configuration")
@@ -1298,8 +1334,9 @@ class SetupManager:
             config['defaults']['monitor_category_id'] = monitor_category_id
             config['defaults']['monitor_fieldset_id'] = monitor_fieldset_id
             
-            # Asset tag naming convention
+            # Asset tag naming conventions
             config['defaults']['naming_convention'] = naming_convention
+            config['defaults']['monitor_naming_convention'] = monitor_naming_convention
             
             # Update db_columns with actual values from Snipe-IT
             total_mappings = len(self.actual_field_mappings) + len(self.actual_monitor_field_mappings)

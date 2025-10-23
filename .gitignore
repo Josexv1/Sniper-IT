@@ -193,9 +193,10 @@ build-report-*.json
 # Old V1 directory (if it exists)
 V1/
 
-# Documentation artifacts (keep only README.md)
+# Documentation artifacts
 *.md
 !README.md
+!CHANGELOG.md
 
 # Logs
 *.log

@@ -229,7 +229,8 @@ def create_default_config() -> Dict[str, Any]:
             'laptop_fieldset_id': 1,
             'monitor_category_id': 5,
             'monitor_fieldset_id': 2,
-            'naming_convention': ''  # Optional: Asset tag pattern like 'MIS-2026-N' for auto-increment
+            'naming_convention': '',  # Optional: Computer asset tag pattern like 'MIS-2026-N' for auto-increment
+            'monitor_naming_convention': ''  # Optional: Monitor asset tag pattern like 'MIS-MON-N' for auto-increment
         },
         'custom_fields': {
             'basic_system_fields': {
