@@ -410,7 +410,7 @@ class MonitorManager:
             all_results = self.api.search_hardware(manufacturer, limit=200, category_id=monitor_category_id)
             self.logger.debug(f"      Found {len(all_results)} monitors from '{manufacturer}'")
             
-            # Apply fuzzy matching to ALL results (model name AND serial)
+            # Apply fuzzy matching to ALL results (serial takes priority over model)
             existing_data = {}  # Initialize
             if len(all_results) > 0:
                 self.logger.debug(f"      [bold]Filtering and matching {len(all_results)} assets:[/bold]")
@@ -422,37 +422,36 @@ class MonitorManager:
                     
                     self.logger.debug(f"      [{idx}/{len(all_results)}] Asset #{asset_id}: '{asset_name}' (Serial: '{asset_serial}')")
                     
-                    # First check: Does the model name match (for cases like "HP EX21" vs "HP EX 21")
-                    model_matches = self._normalize_model_name(asset_name) == self._normalize_model_name(monitor_name)
+                    # Check if we have a valid serial to match against
+                    has_valid_serial = serial and serial.strip()
                     
-                    # Second check: Does the serial match (with fuzzy matching)
-                    serial_matches = False
-                    if serial and serial.strip() and asset_serial:
-                        serial_matches = self._serials_match(asset_serial, serial)
-                    
-                    # Match if EITHER model matches (and no serial) OR serial matches
-                    if model_matches or serial_matches:
-                        existing_asset_id = asset_id
+                    # If we HAVE a serial, ONLY match by serial (ignore model name)
+                    # Multiple monitors can have the same model, so serial is the unique identifier
+                    if has_valid_serial:
+                        serial_matches = False
+                        if asset_serial:
+                            # Pass in correct order: (EDID serial, Database serial)
+                            serial_matches = self._serials_match(serial, asset_serial)
                         
-                        if serial_matches and asset_serial != serial:
-                            self.logger.verbose(f"    [cyan]✓ Found by serial match: Asset #{asset_id}[/cyan]")
-                            self.logger.verbose(f"    [yellow]→ Will update DB serial to match EDID: '{asset_serial}' → '{serial}'[/yellow]")
-                            existing_data = {'needs_serial_update': True, 'old_serial': asset_serial}
-                        elif model_matches and not serial:
-                            self.logger.verbose(f"    [cyan]✓ Found by model name match (no serial): Asset #{asset_id}[/cyan]")
-                            existing_data = {'needs_serial_update': False}
-                        elif model_matches and serial_matches:
+                        if serial_matches:
+                            existing_asset_id = asset_id
                             if asset_serial != serial:
-                                self.logger.verbose(f"    [cyan]✓ Found match (model + serial): Asset #{asset_id}[/cyan]")
+                                self.logger.verbose(f"    [cyan]✓ Found by serial match: Asset #{asset_id}[/cyan]")
                                 self.logger.verbose(f"    [yellow]→ Will update DB serial to match EDID: '{asset_serial}' → '{serial}'[/yellow]")
                                 existing_data = {'needs_serial_update': True, 'old_serial': asset_serial}
                             else:
-                                self.logger.verbose(f"    [green]✓ Found exact match (model + serial): Asset #{asset_id}[/green]")
+                                self.logger.verbose(f"    [green]✓ Found exact match by serial: Asset #{asset_id}[/green]")
                                 existing_data = {'needs_serial_update': False}
-                        else:
-                            self.logger.verbose(f"    [green]✓ Found exact match: Asset #{asset_id}[/green]")
+                            break
+                    
+                    # If we DON'T have a serial, match by model name as fallback
+                    else:
+                        model_matches = self._normalize_model_name(asset_name) == self._normalize_model_name(monitor_name)
+                        if model_matches:
+                            existing_asset_id = asset_id
+                            self.logger.verbose(f"    [cyan]✓ Found by model name match (no serial available): Asset #{asset_id}[/cyan]")
                             existing_data = {'needs_serial_update': False}
-                        break
+                            break
                 
                 if not existing_asset_id:
                     self.logger.debug(f"      [yellow]No matches found in {len(all_results)} assets[/yellow]")

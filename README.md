@@ -1,6 +1,6 @@
 # Sniper-IT Agent
 
-**Version 2.2.9**
+**Version 2.3.5**
 
 Automated asset management agent for Snipe-IT. Automatically collects laptop/desktop and monitor information, then synchronizes it to your Snipe-IT server.
 

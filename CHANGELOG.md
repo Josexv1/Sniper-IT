@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 2.3.5
+
+### Critical Monitor Matching Bugfix
+- **Fixed monitor misidentification bug**: Monitors are now matched ONLY by serial number when serial is available
+- **Root cause**: Previous logic matched by model name OR serial, causing false matches when multiple monitors shared the same model
+- **Impact**: Prevented incorrect monitor-to-asset associations when users have multiple monitors of the same model
+- **Example scenario**: User's monitor (Asset #89, serial `3CM22339Z8`) was incorrectly matched to Asset #103 (serial `3CM2233B68`) because both had model "HP M24fe FHD"
+- **Fix**: Serial number now takes absolute priority when available; model name only used as fallback when serial is not available
+- **Behavior**: Ensures unique monitors are correctly identified by their serial numbers, preventing asset tag conflicts and data corruption
+
 ## Version 2.3.4
 
 ### Monitor Duplicate Prevention
